@@ -170,7 +170,7 @@ with st.sidebar:
     else:
         phys_w, phys_d = total_w_mm, 0
 
-    # --- CAD DIMENSION HELPER ---
+    # --- PDF GENERATOR ---
     def draw_dim_line(ax, start, end, text, offset_dist=1000, color='black'):
         x1, y1 = start
         x2, y2 = end
@@ -180,6 +180,7 @@ with st.sidebar:
         nx, ny = -dy / length, dx / length
         ox1, oy1 = x1 + nx * offset_dist, y1 + ny * offset_dist
         ox2, oy2 = x2 + nx * offset_dist, y2 + ny * offset_dist
+        
         ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
@@ -411,16 +412,22 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
+    # 3D MODEL
     resolution_x = 100 
     resolution_z = 20
     
     if is_curved:
+        # Theta: 270 is Back (-Y). 
+        # Screen Center: (0,0). Apex at 0,0.
+        # Original: x = R cos(t), y = R sin(t). Apex at (0, -R).
+        # Shift Y by +R so Apex is at 0.
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
     else:
+        # Flat: Centered at 0,0
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
-        y = np.full(resolution_x, -1000)
+        y = np.zeros(resolution_x) 
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
@@ -428,7 +435,7 @@ with tab3d:
 
     if content_img_data is not None:
         try:
-            # Force convert to RGB to drop Alpha and ensure compatibility
+            # Force RGB, resize to match grid
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
             img_arr = np.array(pil_img)
@@ -449,11 +456,12 @@ with tab3d:
 
     fig3d = go.Figure(data=[surf])
     
-    # 3D Stick Figure at (0,0,0) - Focal Point
-    # Body (0 to 1750mm)
-    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0, 1750], mode='lines', line=dict(color='red', width=8), name='Viewer'))
-    # Head
-    fig3d.add_trace(go.Scatter3d(x=[0], y=[0], z=[1750], mode='markers', marker=dict(size=6, color='red'), showlegend=False))
+    # 3D Stick Figure at focal point Y=Radius (Curved) or Y=2000 (Flat)
+    # The viewer should be looking at the screen (at 0,0)
+    person_y = curve_radius if is_curved else 2000
+    
+    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[person_y, person_y], z=[0, 1750], mode='lines', line=dict(color='red', width=8), name='Viewer'))
+    fig3d.add_trace(go.Scatter3d(x=[0], y=[person_y], z=[1750], mode='markers', marker=dict(size=6, color='red'), showlegend=False))
     
     fig3d.update_layout(
         scene = dict(
@@ -461,7 +469,7 @@ with tab3d:
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
             aspectmode='data',
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # Viewer's POV
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5))
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
