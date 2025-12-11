@@ -10,6 +10,15 @@ import numpy as np
 from PIL import Image
 import plotly.graph_objects as go
 
+# Add this near the top of app.py
+st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 1. CONFIG & DATABASE ---
 st.set_page_config(page_title="Bendac Visualiser", layout="wide")
 
