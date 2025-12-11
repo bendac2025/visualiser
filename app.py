@@ -8,7 +8,7 @@ import os
 import io
 
 # --- 1. CONFIG & DATABASE ---
-st.set_page_config(page_title="Bendac Visualiser", layout="wide")
+st.set_page_config(page_title="Bendac Visualizer", layout="wide")
 
 def load_data():
     """
@@ -58,14 +58,17 @@ if 'db' not in st.session_state:
 
 df = st.session_state.db
 
-# --- 2. SIDEBAR CONTROLS ---
+# --- 2. CALCULATIONS & VARIABLES ---
+# We move this up so we can use variables in the Sidebar logic
+
+# --- 3. SIDEBAR CONTROLS ---
 with st.sidebar:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=200)
     else:
         st.title("BENDAC")
     
-    st.caption("VISUALISER TOOL")
+    st.caption("VISUALIZER TOOL")
     st.header("Configuration")
     
     # Product Selection
@@ -123,20 +126,164 @@ with st.sidebar:
     if calc_note:
         st.info(calc_note)
 
-# --- 3. CALCULATIONS ---
-total_w_mm = panels_w * spec["Width(mm)"]
-total_h_mm = panels_h * spec["Height(mm)"]
-total_res_w = panels_w * spec["ResW(px)"]
-total_res_h = panels_h * spec["ResH(px)"]
-total_power = (panels_w * panels_h * spec["Power(W)"]) / 1000
+    # --- CALCULATIONS ---
+    total_w_mm = panels_w * spec["Width(mm)"]
+    total_h_mm = panels_h * spec["Height(mm)"]
+    total_res_w = panels_w * spec["ResW(px)"]
+    total_res_h = panels_h * spec["ResH(px)"]
+    total_power = (panels_w * panels_h * spec["Power(W)"]) / 1000
 
-if is_curved and curve_radius > 0:
-    rad_angle = math.radians(curve_angle)
-    phys_w = 2 * curve_radius * math.sin(rad_angle/2)
-    phys_d = curve_radius * (1 - math.cos(rad_angle/2))
-else:
-    phys_w = total_w_mm
-    phys_d = 0
+    if is_curved and curve_radius > 0:
+        rad_angle = math.radians(curve_angle)
+        phys_w = 2 * curve_radius * math.sin(rad_angle/2)
+        phys_d = curve_radius * (1 - math.cos(rad_angle/2))
+    else:
+        phys_w = total_w_mm
+        phys_d = 0
+
+    # --- PDF GENERATION FUNCTION ---
+    def create_pdf_figure():
+        # Create A4 Size Figure (approx 8.27 x 11.69 inches)
+        pdf_fig = plt.figure(figsize=(8.27, 11.69))
+        
+        # 1. HEADER (Logo & Title) - Top 15%
+        # Add Logo
+        if os.path.exists("logo.png"):
+            ax_logo = pdf_fig.add_axes([0.1, 0.88, 0.3, 0.1]) # [left, bottom, width, height]
+            img_logo = mpimg.imread("logo.png")
+            ax_logo.imshow(img_logo)
+            ax_logo.axis('off')
+        
+        # Add Title Text
+        pdf_fig.text(0.5, 0.93, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
+        pdf_fig.text(0.5, 0.91, f"{selected_prod}", ha='center', fontsize=12, color='#555')
+
+        # 2. DATA TABLE - Top Middle (below header)
+        ax_table = pdf_fig.add_axes([0.1, 0.73, 0.8, 0.15])
+        ax_table.axis('off')
+        
+        table_data = [
+            ["Model Series", f"{selected_prod}"],
+            ["Pixel Pitch", f"{selected_pitch} mm"],
+            ["Configuration", f"{panels_w} (W) x {panels_h} (H) Panels"],
+            ["Total Dimensions", f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"],
+            ["Total Resolution", f"{total_res_w} px (W) x {total_res_h} px (H)"],
+            ["Max Power", f"{total_power:.2f} kW"],
+        ]
+        
+        if is_curved:
+            table_data.append(["Curve Radius", f"{curve_radius:,.0f} mm"])
+            table_data.append(["Curve Angle", f"{curve_angle:.1f}°"])
+            table_data.append(["Physical Footprint", f"{phys_w:,.0f} mm (W) x {phys_d:,.0f} mm (D)"])
+        else:
+            table_data.append(["Geometry", "Flat Wall"])
+
+        # Create Table
+        the_table = ax_table.table(cellText=table_data, loc='center', cellLoc='left', colWidths=[0.3, 0.7])
+        the_table.auto_set_font_size(False)
+        the_table.set_fontsize(10)
+        the_table.scale(1, 1.5) # Add padding to cells
+        
+        # Style the table (optional: bold first column)
+        for (i, j), cell in the_table.get_celld().items():
+            if j == 0:
+                cell.set_text_props(weight='bold')
+            cell.set_edgecolor('#dddddd')
+
+        # 3. FRONT VIEW - Middle
+        ax_front = pdf_fig.add_axes([0.1, 0.38, 0.8, 0.30]) # Position
+        ax_front.set_title("FRONT VIEW (Unfolded)")
+        ax_front.set_aspect('equal')
+        ax_front.axis('off')
+        
+        # Draw Screen
+        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=spec["Color"])
+        ax_front.add_patch(rect)
+        
+        # Grid
+        if panels_w <= 1000:
+            for c in range(int(panels_w) + 1):
+                x = c * spec["Width(mm)"]
+                ax_front.plot([x, x], [0, total_h_mm], color='black', linewidth=0.1, alpha=0.5)
+            for r in range(int(panels_h) + 1):
+                y = r * spec["Height(mm)"]
+                ax_front.plot([0, total_w_mm], [y, y], color='black', linewidth=0.1, alpha=0.5)
+
+        # Person Image (reuse loaded img if avail)
+        pdf_px = total_w_mm + 500
+        if os.path.exists("person.png"):
+            img = mpimg.imread("person.png")
+            aspect_ratio = img.shape[1] / img.shape[0]
+            ax_front.imshow(img, extent=[pdf_px, pdf_px + (1750*aspect_ratio), 0, 1750])
+        else:
+             ax_front.add_patch(patches.Rectangle((pdf_px, 0), 600, 1750, color="#ccc"))
+        
+        ax_front.autoscale_view()
+        
+        # 4. TOP VIEW - Bottom
+        ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.28])
+        ax_top.set_title("TOP VIEW (Plan)")
+        ax_top.set_aspect('equal')
+        ax_top.axis('off')
+        
+        if not is_curved:
+            start_x = -(total_w_mm / 2)
+            ax_top.add_patch(patches.Rectangle((start_x, 0), total_w_mm, 100, linewidth=1, edgecolor='black', facecolor=spec["Color"]))
+            pdf_py = 1000
+        else:
+            center_x = 0
+            center_y = curve_radius 
+            start_angle = 270 - (curve_angle / 2)
+            current_a = math.radians(start_angle)
+            angle_step = curve_angle / panels_w
+            for i in range(int(panels_w)):
+                x1 = center_x + curve_radius * math.cos(current_a)
+                y1 = center_y + curve_radius * math.sin(current_a)
+                x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
+                y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
+                r_out = curve_radius + 100
+                x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
+                y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
+                x4 = center_x + r_out * math.cos(current_a)
+                y4 = center_y + r_out * math.sin(current_a)
+                ax_top.add_patch(patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='black', facecolor=spec["Color"]))
+                current_a += math.radians(angle_step)
+            pdf_py = min(curve_radius, phys_d + 3000)
+
+        # Top Person
+        if os.path.exists("top_person.png"):
+            img_top = mpimg.imread("top_person.png")
+            t_aspect = img_top.shape[1] / img_top.shape[0]
+            t_w = 600
+            t_h = t_w / t_aspect
+            ax_top.imshow(img_top, extent=[-t_w/2, t_w/2, pdf_py - t_h/2, pdf_py + t_h/2])
+        else:
+            ax_top.add_patch(patches.Circle((0, pdf_py), 200, color='#333'))
+
+        ax_top.autoscale_view()
+        
+        # Save to buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format="pdf", bbox_inches='tight')
+        buf.seek(0)
+        return buf
+
+    # --- SIDEBAR DOWNLOAD BUTTON ---
+    st.divider()
+    
+    # We generate the buffer only when the button needs it, but Streamlit buttons refresh the script.
+    # To keep it efficient, we put the logic inside the button callback or logic block.
+    # Standard Streamlit download button requires data pre-loaded.
+    
+    pdf_buffer = create_pdf_figure()
+    st.download_button(
+        label="📄 Download Spec Sheet (PDF)",
+        data=pdf_buffer,
+        file_name=f"Bendac_Spec_{selected_prod}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+
 
 # --- 4. MAIN DISPLAY ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
@@ -158,21 +305,8 @@ plot_col1, plot_col2 = st.columns(2)
 person_h = 1750
 panel_color = spec["Color"]
 
-# Create a master figure for export
-# We will draw on separate axes but keep track of them for PDF export
-fig_export = plt.figure(figsize=(12, 6))
-
 # --- FRONT VIEW (AX1) ---
 with plot_col1:
-    # Use the export figure's subplot mechanism or create new ones? 
-    # To display nicely in Streamlit columns, we create individual figures for display,
-    # but for the PDF download, we want them together.
-    # Approach: Create individual figs for UI. Re-create logic for PDF or save individual figs?
-    # Simplest: Just save the specific figure the user wants. 
-    # User Request: "Download PDF button". Typically implies the Drawing Plan.
-    
-    # Let's create a combined figure for the PDF logic later, but separate for display.
-    
     fig1, ax1 = plt.subplots(figsize=(6, 5)) 
     ax1.set_title("FRONT VIEW (Unfolded)")
     ax1.set_aspect('equal')
@@ -183,16 +317,14 @@ with plot_col1:
     ax1.add_patch(rect)
 
     # Draw Grid Lines
-    if panels_w <= 2000 and panels_h <= 2000:
-        for c in range(int(panels_w) + 1):
-            x = c * spec["Width(mm)"]
-            ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5)
-        for r in range(int(panels_h) + 1):
-            y = r * spec["Height(mm)"]
-            ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5)
+    for c in range(int(panels_w) + 1):
+        x = c * spec["Width(mm)"]
+        ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5)
+    for r in range(int(panels_h) + 1):
+        y = r * spec["Height(mm)"]
+        ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5)
 
-    # **FLOOR LINE FIX**: Add a ground line to prevent floating appearance
-    ax1.axhline(0, color='black', linewidth=1, xmin=0.05, xmax=0.95)
+    # **FLOOR LINE REMOVED HERE** (Was previously ax1.axhline...)
 
     # Draw Person (IMAGE)
     p_x = total_w_mm + 500 
@@ -287,96 +419,3 @@ with plot_col2:
     ax2.margins(0.1)
 
     st.pyplot(fig2, use_container_width=True)
-
-# --- 6. PDF DOWNLOAD ---
-# We create a new combined figure just for the PDF to ensure it looks neat on one page
-def create_pdf_figure():
-    # Create a clean figure with 2 subplots
-    pdf_fig, (p_ax1, p_ax2) = plt.subplots(2, 1, figsize=(10, 14))
-    
-    # 1. Front View (Re-draw logic for PDF)
-    p_ax1.set_title(f"FRONT VIEW - {selected_prod} ({total_w_mm:.0f}x{total_h_mm:.0f}mm)")
-    p_ax1.set_aspect('equal')
-    p_ax1.axis('off')
-    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=panel_color)
-    p_ax1.add_patch(rect)
-    
-    # Grid
-    if panels_w <= 1000:
-        for c in range(int(panels_w) + 1):
-            x = c * spec["Width(mm)"]
-            p_ax1.plot([x, x], [0, total_h_mm], color='black', linewidth=0.2, alpha=0.5)
-        for r in range(int(panels_h) + 1):
-            y = r * spec["Height(mm)"]
-            p_ax1.plot([0, total_w_mm], [y, y], color='black', linewidth=0.2, alpha=0.5)
-
-    # Floor Line
-    p_ax1.axhline(0, color='black', linewidth=1)
-
-    # Person Image (reuse loaded img if avail)
-    pdf_px = total_w_mm + 500
-    if os.path.exists("person.png"):
-        img = mpimg.imread("person.png")
-        aspect_ratio = img.shape[1] / img.shape[0]
-        p_ax1.imshow(img, extent=[pdf_px, pdf_px + (1750*aspect_ratio), 0, 1750])
-    
-    p_ax1.autoscale_view()
-    
-    # 2. Top View (Re-draw logic for PDF)
-    p_ax2.set_title("TOP VIEW (Plan)")
-    p_ax2.set_aspect('equal')
-    p_ax2.axis('off')
-    
-    if not is_curved:
-        start_x = -(total_w_mm / 2)
-        p_ax2.add_patch(patches.Rectangle((start_x, 0), total_w_mm, 100, linewidth=1, edgecolor='black', facecolor=panel_color))
-        pdf_py = 1000
-    else:
-        # Curved logic copy
-        center_x = 0
-        center_y = curve_radius 
-        start_angle = 270 - (curve_angle / 2)
-        current_a = math.radians(start_angle)
-        angle_step = curve_angle / panels_w
-        for i in range(int(panels_w)):
-            x1 = center_x + curve_radius * math.cos(current_a)
-            y1 = center_y + curve_radius * math.sin(current_a)
-            x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
-            y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
-            r_out = curve_radius + 100
-            x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
-            y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
-            x4 = center_x + r_out * math.cos(current_a)
-            y4 = center_y + r_out * math.sin(current_a)
-            p_ax2.add_patch(patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='black', facecolor=panel_color))
-            current_a += math.radians(angle_step)
-        pdf_py = min(curve_radius, phys_d + 3000)
-
-    # Top Person
-    if os.path.exists("top_person.png"):
-        img_top = mpimg.imread("top_person.png")
-        t_aspect = img_top.shape[1] / img_top.shape[0]
-        t_w = 600
-        t_h = t_w / t_aspect
-        p_ax2.imshow(img_top, extent=[-t_w/2, t_w/2, pdf_py - t_h/2, pdf_py + t_h/2])
-
-    p_ax2.autoscale_view()
-    
-    # Save to buffer
-    buf = io.BytesIO()
-    plt.savefig(buf, format="pdf", bbox_inches='tight')
-    buf.seek(0)
-    return buf
-
-# Download Button
-st.divider()
-col_dl, col_blank = st.columns([1, 4])
-with col_dl:
-    if st.button("Prepare PDF"):
-        pdf_buffer = create_pdf_figure()
-        st.download_button(
-            label="Download Spec Sheet (PDF)",
-            data=pdf_buffer,
-            file_name=f"Bendac_Spec_{selected_prod}.pdf",
-            mime="application/pdf"
-        )
