@@ -254,7 +254,6 @@ with st.sidebar:
 
     # --- PDF GENERATION FUNCTION ---
     def create_pdf_figure():
-        # *** FIX ***: Define panel_thick locally for PDF logic
         panel_thick = 100 
         
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
@@ -267,8 +266,7 @@ with st.sidebar:
         
         pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # Shifted Table Down to 0.58 to create space
-        ax_table = pdf_fig.add_axes([0.1, 0.58, 0.8, 0.22])
+        ax_table = pdf_fig.add_axes([0.1, 0.58, 0.8, 0.20])
         ax_table.axis('off')
         
         dim_str = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
@@ -295,6 +293,14 @@ with st.sidebar:
         
         if is_curved:
             table_data.append(["Curve", f"R: {curve_radius:,.0f}mm | {curve_angle:.1f}°"])
+            # Add Footprint with 600mm buffer on all sides
+            buff_w = phys_w + 1200
+            buff_d = phys_d + 1200
+            table_data.append(["Install Zone (+600mm)", f"{buff_w:,.0f} mm (W) x {buff_d:,.0f} mm (D)"])
+        else:
+            # Optional: Add footprint for flat too?
+            # table_data.append(["Install Zone (+600mm)", f"{total_w_mm+1200:,.0f} mm (W) x {100+1200:,.0f} mm (D)"])
+            pass
         
         the_table = ax_table.table(cellText=table_data, loc='center', cellLoc='left', colWidths=[0.3, 0.7])
         the_table.auto_set_font_size(False)
@@ -314,7 +320,6 @@ with st.sidebar:
             if j == 0: cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
-        # Shifted Front View Down to 0.30
         ax_front = pdf_fig.add_axes([0.1, 0.30, 0.8, 0.23])
         ax_front.set_title("FRONT VIEW")
         ax_front.set_aspect('equal')
@@ -322,10 +327,10 @@ with st.sidebar:
         
         p_color = spec["Color"]
         
-        # Check if content is uploaded to determine facecolor
-        front_facecolor = 'none' if content_img_data is not None else p_color
+        # Transparent face if content loaded
+        face_col = 'none' if content_img_data is not None else p_color
         
-        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=front_facecolor)
+        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=face_col)
         ax_front.add_patch(rect)
         
         if content_img_data is not None:
@@ -349,7 +354,6 @@ with st.sidebar:
         
         ax_front.autoscale_view()
         
-        # Shifted Top View Down to 0.05
         ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
@@ -476,10 +480,10 @@ with plot_col1:
     ax1.set_aspect('equal')
     ax1.axis('off')
 
-    # Determine facecolor based on content upload
-    screen_facecolor = 'none' if content_img_data is not None else panel_color
-
-    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=screen_facecolor, zorder=1)
+    # Content Logic for Display
+    face_col = 'none' if content_img_data is not None else panel_color
+    
+    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=face_col, zorder=1)
     ax1.add_patch(rect)
     
     if content_img_data is not None:
