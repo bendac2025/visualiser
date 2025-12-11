@@ -8,18 +8,13 @@ import os
 import io
 import numpy as np
 from PIL import Image
+import plotly.graph_objects as go
 
 # --- 1. CONFIG & DATABASE ---
 st.set_page_config(page_title="Bendac Visualiser", layout="wide")
 
 def load_data():
-    """
-    Tries to load data from CSV. 
-    Falls back to hardcoded dictionary if file is missing/broken.
-    """
     csv_file = "bendac_database.csv"
-    
-    # BACKUP DATA
     backup_data = {
         'Product Name': [
             'Bendac AccuVision', 'Bendac AccuVision', 
@@ -36,10 +31,8 @@ def load_data():
         'Weight(kg)': [7.5, 7.5, 12.5, 12.5, 12.0, 28.0, 28.0, 28.0, 6.5, 6.5, 6.5],
         'MaxFPS(Hz)': [240, 240, 60, 60, 60, 60, 60, 60, 60, 60, 60],
         'Color': [
-            '#4a90e2', '#4a90e2', 
-            '#50e3c2', '#50e3c2', '#50e3c2', 
-            '#9013fe', '#9013fe', '#9013fe', 
-            '#f5a623', '#f5a623', '#f5a623'
+            '#4a90e2', '#4a90e2', '#50e3c2', '#50e3c2', '#50e3c2', 
+            '#9013fe', '#9013fe', '#9013fe', '#f5a623', '#f5a623', '#f5a623'
         ]
     }
 
@@ -48,20 +41,12 @@ def load_data():
             df = pd.read_csv(csv_file)
             if 'Weight(kg)' not in df.columns: df['Weight(kg)'] = 10.0
             if 'MaxFPS(Hz)' not in df.columns: df['MaxFPS(Hz)'] = 60
-            
-            required_cols = ['Product Name', 'Width(mm)', 'Height(mm)', 'Pitch(mm)', 'ResW(px)', 'ResH(px)', 'Power(W)', 'Color']
-            if all(col in df.columns for col in required_cols):
-                return df
-            else:
-                st.warning("CSV missing required columns. Using backup data.")
-        except Exception as e:
-            st.error(f"Error reading CSV: {e}. Using backup data.")
-    
+            return df
+        except: pass
     return pd.DataFrame(backup_data)
 
-# --- PROCESSOR DATABASE ---
 NOVASTAR_DB = {
-    "Novastar MCTRL660 Pro": { "type": "fixed", "capacity_60": 2300000, "ports": 6 }, 
+    "Novastar MCTRL660 Pro": { "type": "fixed", "capacity_60": 2300000, "ports": 6 },
     "Novastar VX1000": { "type": "fixed", "capacity_60": 6500000, "ports": 10 },
     "Novastar MCTRL4K": { "type": "fixed", "capacity_60": 8800000, "ports": 16 },
     "Novastar MX40 Pro": { "type": "fixed", "capacity_60": 8800000, "ports": 20 },
@@ -69,99 +54,67 @@ NOVASTAR_DB = {
     "Novastar MX6000 Pro (40G Cards)": { "type": "modular", "capacity_60": 141000000, "card_capacity_60": 26200000, "slots": 8 }
 }
 
-# Initialize Session State
 if 'db' not in st.session_state:
     st.session_state.db = load_data()
-
 df = st.session_state.db
 
-# --- 2. SIDEBAR CONTROLS ---
+# --- SIDEBAR ---
 with st.sidebar:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=200)
-    else:
-        st.title("BENDAC")
-    
+    if os.path.exists("logo.png"): st.image("logo.png", width=200)
+    else: st.title("BENDAC")
     st.caption("VISUALISER TOOL")
     
     use_imperial = st.checkbox("Show Imperial Units (ft/lbs)", value=False)
     
     st.header("1. Configuration")
-    
     unique_products = list(df["Product Name"].unique())
-    default_prod_index = 0
-    if "Bendac Krystl Max" in unique_products:
-        default_prod_index = unique_products.index("Bendac Krystl Max")
-        
-    selected_prod = st.selectbox("Product Series", unique_products, index=default_prod_index)
+    idx_p = unique_products.index("Bendac Krystl Max") if "Bendac Krystl Max" in unique_products else 0
+    selected_prod = st.selectbox("Product Series", unique_products, index=idx_p)
     
     prod_rows = df[df["Product Name"] == selected_prod]
     available_pitches = sorted(prod_rows["Pitch(mm)"].unique())
-    
-    default_pitch_index = 0
-    if 1.9 in available_pitches:
-        default_pitch_index = available_pitches.index(1.9)
-        
-    selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches, index=default_pitch_index)
-    spec = prod_rows[prod_rows["Pitch(mm)"].unique() == selected_pitch].iloc[0]
+    idx_pt = available_pitches.index(1.9) if 1.9 in available_pitches else 0
+    selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches, index=idx_pt)
+    spec = prod_rows[prod_rows["Pitch(mm)"] == selected_pitch].iloc[0]
     
     st.divider()
+    c1, c2 = st.columns(2)
+    with c1: panels_w = st.number_input("Panels Wide", 1, value=1)
+    with c2: panels_h = st.number_input("Panels High", 1, value=1)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        panels_w = st.number_input("Panels Wide", min_value=1, value=1)
-    with col2:
-        panels_h = st.number_input("Panels High", min_value=1, value=1)
-        
     st.divider()
-    
     st.subheader("2. Curve Geometry")
-    curve_radius = st.number_input("Radius (mm)", min_value=0.0, value=0.0, step=100.0)
-    curve_angle = st.number_input("Total Angle (deg)", min_value=0.0, value=0.0, step=1.0)
+    curve_radius = st.number_input("Radius (mm)", 0.0, step=100.0)
+    curve_angle = st.number_input("Total Angle (deg)", 0.0, step=1.0)
     
     is_curved = False
-    calc_note = ""
-    
     if curve_radius > 0 and curve_angle > 0:
         is_curved = True
-        req_arc = 2 * math.pi * curve_radius * (curve_angle / 360)
-        panels_needed = round(req_arc / spec["Width(mm)"])
-        if panels_needed < 1: panels_needed = 1
-        panels_w = panels_needed 
-        calc_note = f"Auto-Adjusted Width to **{panels_needed} panels** based on Radius/Angle."
+        panels_w = max(1, round((2 * math.pi * curve_radius * (curve_angle / 360)) / spec["Width(mm)"]))
+        st.info(f"Auto-set Width to **{panels_w} panels** based on geometry.")
     elif curve_radius > 0:
         is_curved = True
-        arc_len = panels_w * spec["Width(mm)"]
-        rad_angle = arc_len / curve_radius
-        curve_angle = math.degrees(rad_angle)
+        curve_angle = math.degrees((panels_w * spec["Width(mm)"]) / curve_radius)
     elif curve_angle > 0:
         is_curved = True
-        arc_len = panels_w * spec["Width(mm)"]
-        rad_angle = math.radians(curve_angle)
-        curve_radius = arc_len / rad_angle
+        curve_radius = (panels_w * spec["Width(mm)"]) / math.radians(curve_angle)
 
-    if calc_note:
-        st.info(calc_note)
-
-    st.subheader("3. Processing (Novastar)")
+    st.subheader("3. Processing")
     proc_model = st.selectbox("Processor Model", list(NOVASTAR_DB.keys()))
+    fps_opts = [60, 120, 240] if "AccuVision" in selected_prod else [60]
+    target_fps = st.selectbox("Frame Rate (Hz)", fps_opts)
     
-    if "AccuVision" in selected_prod:
-        fps_options = [60, 120, 240]
-    else:
-        fps_options = [60]
-    target_fps = st.selectbox("Target Frame Rate (Hz)", fps_options)
-    
-    st.subheader("4. Visual Context")
+    # --- ELECTRICAL CALC ---
+    st.subheader("4. Electrical")
+    voltage = st.selectbox("Voltage", [110, 208, 230, 240], index=2) # Default 230V
+    phase_type = st.radio("Phase", ["Single Phase", "3-Phase"], index=0)
+
+    st.subheader("5. Visual Context")
     content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
-    
     content_img_data = None
     if content_file:
-        try:
-            image = Image.open(content_file)
-            content_img_data = np.array(image)
-        except Exception as e:
-            st.error(f"Error loading image: {e}")
+        try: content_img_data = np.array(Image.open(content_file))
+        except: pass
 
     # --- CALCULATIONS ---
     total_w_mm = panels_w * spec["Width(mm)"]
@@ -169,229 +122,227 @@ with st.sidebar:
     total_res_w = panels_w * spec["ResW(px)"]
     total_res_h = panels_h * spec["ResH(px)"]
     total_pixels = total_res_w * total_res_h
-    
     total_power_w = panels_w * panels_h * spec["Power(W)"]
     total_weight_kg = panels_w * panels_h * spec["Weight(kg)"]
-    
     btu_hr = total_power_w * 3.412142
-    aspect_ratio = total_w_mm / total_h_mm
     
-    # --- PROCESSOR CALCULATIONS ---
-    fps_scale = 60 / target_fps
-    
-    port_capacity_60 = 655360 
-    port_capacity_real = port_capacity_60 * fps_scale
-    total_ports_needed = math.ceil(total_pixels / port_capacity_real)
-    
-    proc_data = NOVASTAR_DB[proc_model]
-    chassis_load_pct = 0 
-    reason_str = ""
-
-    if proc_data["type"] == "fixed":
-        unit_cap_real = proc_data["capacity_60"] * fps_scale
-        procs_by_pixels = math.ceil(total_pixels / unit_cap_real)
-        ports_per_unit = proc_data["ports"]
-        procs_by_ports = math.ceil(total_ports_needed / ports_per_unit)
-        
-        total_procs_needed = max(procs_by_pixels, procs_by_ports)
-        
-        total_sys_cap = total_procs_needed * unit_cap_real
-        if total_sys_cap > 0:
-            chassis_load_pct = (total_pixels / total_sys_cap) * 100
-        
-        if procs_by_ports > procs_by_pixels:
-            reason_str = "Driven by: Physical Ports"
-        else:
-            reason_str = "Driven by: Pixel Capacity"
-            
-        proc_str = f"{total_procs_needed}x {proc_model}"
-        
+    # Electrical Math
+    # Simple engineering formula (PF=1 for max draw estimation)
+    if phase_type == "Single Phase":
+        total_amps = total_power_w / voltage
+        elec_str = f"{total_amps:.1f}A @ {voltage}V (1-Phase)"
     else:
-        card_cap_real = proc_data["card_capacity_60"] * fps_scale
-        total_cards_needed = math.ceil(total_pixels / card_cap_real)
-        
-        slots_per_chassis = proc_data["slots"]
-        chassis_by_slots = math.ceil(total_cards_needed / slots_per_chassis)
-        
-        chassis_cap_real = proc_data["capacity_60"] * fps_scale
-        chassis_by_cap = math.ceil(total_pixels / chassis_cap_real)
-        
-        total_chassis_needed = max(chassis_by_slots, chassis_by_cap)
-        
-        total_cap_modular = total_chassis_needed * chassis_cap_real
-        if total_cap_modular > 0:
-            chassis_load_pct = (total_pixels / total_cap_modular) * 100
-        
-        if chassis_by_cap > chassis_by_slots:
-            reason_str = "Driven by: Chassis Bandwidth Limit"
-        else:
-            reason_str = "Driven by: Slot Count"
+        # 3-Phase formula: Watts / (Volts * sqrt(3))
+        total_amps = total_power_w / (voltage * 1.732)
+        elec_str = f"{total_amps:.1f}A/Line @ {voltage}V (3-Phase)"
 
-        proc_str = f"{total_chassis_needed}x {proc_model.split('(')[0]} ({total_cards_needed}x 40G Cards)"
+    # Processor Math
+    fps_scale = 60 / target_fps
+    total_ports_needed = math.ceil(total_pixels / (655360 * fps_scale))
+    proc_data = NOVASTAR_DB[proc_model]
+    
+    if proc_data["type"] == "fixed":
+        unit_cap = proc_data["capacity_60"] * fps_scale
+        req_pix = math.ceil(total_pixels / unit_cap)
+        req_port = math.ceil(total_ports_needed / proc_data["ports"])
+        total_procs = max(req_pix, req_port)
+        load_pct = (total_pixels / (total_procs * unit_cap)) * 100
+        proc_str = f"{total_procs}x {proc_model}"
+        reason_str = "Ports" if req_port > req_pix else "Pixels"
+    else:
+        card_cap = proc_data["card_capacity_60"] * fps_scale
+        req_cards = math.ceil(total_pixels / card_cap)
+        chassis_cap = proc_data["capacity_60"] * fps_scale
+        
+        req_chassis_slots = math.ceil(req_cards / proc_data["slots"])
+        req_chassis_bw = math.ceil(total_pixels / chassis_cap)
+        total_chassis = max(req_chassis_slots, req_chassis_bw)
+        
+        load_pct = (total_pixels / (total_chassis * chassis_cap)) * 100 if total_chassis > 0 else 0
+        proc_str = f"{total_chassis}x {proc_model.split('(')[0]} ({req_cards}x 40G Cards)"
+        reason_str = "Bandwidth" if req_chassis_bw > req_chassis_slots else "Slots"
 
-    if chassis_load_pct > 95:
-        st.warning(f"⚠️ High Chassis Load: {chassis_load_pct:.1f}%")
+    if chassis_load_pct := load_pct:
+        if load_pct > 95: st.warning(f"⚠️ High Chassis Load: {load_pct:.1f}%")
 
-    # --- VIDEO INPUT & IG CALCULATIONS ---
-    video_input_cap = 8294400 * fps_scale
-    video_inputs_needed = math.ceil(total_pixels / video_input_cap)
-    input_str = f"{video_inputs_needed}x 4K Inputs"
+    video_inputs = math.ceil(total_pixels / (8294400 * fps_scale))
+    input_str = f"{video_inputs}x 4K Inputs"
     
     is_accuvision = "AccuVision" in selected_prod
-    if is_accuvision:
-        igs_needed = math.ceil(video_inputs_needed / 4)
-        ig_str = f"{igs_needed}x Image Generators (PC)"
-    else:
-        ig_str = ""
+    ig_str = f"{math.ceil(video_inputs / 4)}x Image Generators" if is_accuvision else ""
 
     if is_curved and curve_radius > 0:
-        rad_angle = math.radians(curve_angle)
-        phys_w = 2 * curve_radius * math.sin(rad_angle/2)
-        phys_d = curve_radius * (1 - math.cos(rad_angle/2))
+        rad = math.radians(curve_angle)
+        phys_w = 2 * curve_radius * math.sin(rad/2)
+        phys_d = curve_radius * (1 - math.cos(rad/2))
     else:
-        phys_w = total_w_mm
-        phys_d = 0
+        phys_w, phys_d = total_w_mm, 0
 
-    # --- PDF GENERATION FUNCTION ---
-    def create_pdf_figure():
-        panel_thick = 100 
+    # --- CAD DIMENSION HELPER ---
+    def draw_dim_line(ax, start, end, text, offset=0, color='black'):
+        """Draws a CAD style dimension line with arrows and text"""
+        # Midpoint
+        mid_x = (start[0] + end[0]) / 2
+        mid_y = (start[1] + end[1]) / 2
         
-        pdf_fig = plt.figure(figsize=(8.27, 11.69))
+        # Determine angle
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        
+        # Offset vector (perpendicular)
+        # Normalize
+        length = math.sqrt(dx*dx + dy*dy)
+        if length == 0: return
+        perp_x = -dy / length * offset
+        perp_y = dx / length * offset
+        
+        # New points
+        p1 = (start[0] + perp_x, start[1] + perp_y)
+        p2 = (end[0] + perp_x, end[1] + perp_y)
+        
+        # Draw Extension lines
+        ax.plot([start[0], p1[0]], [start[1], p1[1]], color=color, linewidth=0.5, linestyle=':')
+        ax.plot([end[0], p2[0]], [end[1], p2[1]], color=color, linewidth=0.5, linestyle=':')
+        
+        # Draw Arrow Line
+        ax.annotate('', xy=p1, xytext=p2, arrowprops=dict(arrowstyle='<->', color=color, lw=0.8))
+        
+        # Draw Text
+        t_x = (p1[0] + p2[0]) / 2
+        t_y = (p1[1] + p2[1]) / 2
+        # Slight bump for text
+        text_offset_y = 50 if abs(dx) > abs(dy) else 0
+        text_offset_x = 50 if abs(dy) >= abs(dx) else 0
+        
+        ax.text(t_x + text_offset_x, t_y + text_offset_y, text, ha='center', va='center', fontsize=8, color=color, backgroundcolor='white')
+
+    def create_pdf():
+        panel_thick = 100
+        fig = plt.figure(figsize=(8.27, 11.69))
         
         if os.path.exists("logo.png"):
-            ax_logo = pdf_fig.add_axes([0.35, 0.89, 0.3, 0.08]) 
-            img_logo = mpimg.imread("logo.png")
-            ax_logo.imshow(img_logo)
-            ax_logo.axis('off')
+            ax_l = fig.add_axes([0.35, 0.89, 0.3, 0.08])
+            ax_l.imshow(mpimg.imread("logo.png"))
+            ax_l.axis('off')
         
-        pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
+        fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        ax_table = pdf_fig.add_axes([0.1, 0.58, 0.8, 0.20])
-        ax_table.axis('off')
+        # Table
+        ax_t = fig.add_axes([0.1, 0.58, 0.8, 0.20])
+        ax_t.axis('off')
         
-        dim_str = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
-        weight_str = f"{total_weight_kg:,.0f} kg"
+        d_s = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
+        w_s = f"{total_weight_kg:,.0f} kg"
         if use_imperial:
-            dim_str += f"\n{total_w_mm/304.8:,.1f} ft (W) x {total_h_mm/304.8:,.1f} ft (H)"
-            weight_str += f" ({total_weight_kg*2.20462:,.0f} lbs)"
+            d_s += f"\n{total_w_mm/304.8:,.1f} ft (W) x {total_h_mm/304.8:,.1f} ft (H)"
+            w_s += f" ({total_weight_kg*2.20462:,.0f} lbs)"
 
-        table_data = [
+        rows = [
             ["Model Series", f"{selected_prod}"],
             ["Pixel Pitch", f"{selected_pitch} mm"],
             ["Configuration", f"{panels_w} (W) x {panels_h} (H) Panels"],
-            ["Dimensions", dim_str],
+            ["Dimensions", d_s],
             ["Resolution", f"{total_res_w} px (W) x {total_res_h} px (H) @ {target_fps}Hz"],
             ["Max Power / Heat", f"{total_power_w/1000:.1f} kW  /  {btu_hr:,.0f} BTU/hr"],
-            ["Total Weight", weight_str],
-            ["Processing", f"{proc_str}\n({reason_str} - Load: {chassis_load_pct:.1f}%)"],
-            ["Data Capacity", f"{total_ports_needed}x 1G Ports required (Ref)"],
+            ["Electrical", elec_str],
+            ["Total Weight", w_s],
+            ["Processing", f"{proc_str}\n({reason_str} - Load: {load_pct:.1f}%)"],
+            ["Data Capacity", f"{total_ports_needed}x 1G Ports required"],
             ["Video Inputs", input_str]
         ]
-        
-        if is_accuvision:
-            table_data.append(["Image Generators", ig_str])
-        
+        if is_accuvision: rows.append(["Image Generators", ig_str])
         if is_curved:
-            table_data.append(["Curve", f"R: {curve_radius:,.0f}mm | {curve_angle:.1f}°"])
-            # Add Footprint with 600mm buffer on all sides
-            buff_w = phys_w + 1200
-            buff_d = phys_d + 1200
-            table_data.append(["Install Zone (+600mm)", f"{buff_w:,.0f} mm (W) x {buff_d:,.0f} mm (D)"])
-        else:
-            # Optional: Add footprint for flat too?
-            # table_data.append(["Install Zone (+600mm)", f"{total_w_mm+1200:,.0f} mm (W) x {100+1200:,.0f} mm (D)"])
-            pass
-        
-        the_table = ax_table.table(cellText=table_data, loc='center', cellLoc='left', colWidths=[0.3, 0.7])
-        the_table.auto_set_font_size(False)
-        the_table.set_fontsize(9)
-        the_table.scale(1, 1.6)
-        
-        # Row Height Logic
-        for row_idx, row_data in enumerate(table_data):
-            content_cell = row_data[1] 
-            if "\n" in content_cell:
-                current_height = the_table[row_idx, 0].get_height()
-                new_height = current_height * 1.8
-                the_table[row_idx, 0].set_height(new_height)
-                the_table[row_idx, 1].set_height(new_height)
+            rows.append(["Curve", f"R: {curve_radius:,.0f}mm | {curve_angle:.1f}°"])
+            rows.append(["Install Zone (+600mm)", f"{phys_w+1200:,.0f} mm (W) x {phys_d+1200:,.0f} mm (D)"])
 
-        for (i, j), cell in the_table.get_celld().items():
-            if j == 0: cell.set_text_props(weight='bold')
-            cell.set_edgecolor('#dddddd')
+        tbl = ax_t.table(cellText=rows, loc='center', cellLoc='left', colWidths=[0.3, 0.7])
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(9)
+        tbl.scale(1, 1.6)
+        
+        # Resize Rows
+        for r, row_d in enumerate(rows):
+            if "\n" in row_d[1]:
+                tbl[r, 0].set_height(tbl[r, 0].get_height() * 1.8)
+                tbl[r, 1].set_height(tbl[r, 1].get_height() * 1.8)
+        
+        for (i, j), c in tbl.get_celld().items():
+            if j == 0: c.set_text_props(weight='bold')
+            c.set_edgecolor('#dddddd')
 
-        ax_front = pdf_fig.add_axes([0.1, 0.30, 0.8, 0.23])
-        ax_front.set_title("FRONT VIEW")
-        ax_front.set_aspect('equal')
-        ax_front.axis('off')
+        # Front View
+        ax_f = fig.add_axes([0.1, 0.30, 0.8, 0.23])
+        ax_f.set_title("FRONT VIEW")
+        ax_f.set_aspect('equal')
+        ax_f.axis('off')
         
-        p_color = spec["Color"]
-        
-        # Transparent face if content loaded
-        face_col = 'none' if content_img_data is not None else p_color
-        
-        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=face_col)
-        ax_front.add_patch(rect)
-        
+        fc = 'none' if content_img_data is not None else spec["Color"]
+        ax_f.add_patch(patches.Rectangle((0, 0), total_w_mm, total_h_mm, fc=fc, ec='black', lw=1))
         if content_img_data is not None:
-            ax_front.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=0)
+            ax_f.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=0)
+        
+        # Grid
+        if panels_w <= 100:
+            for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
+            for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
+            
+        # DIMS - Width & Height
+        draw_dim_line(ax_f, (0, -200), (total_w_mm, -200), f"{total_w_mm:,.0f}mm", offset=0)
+        draw_dim_line(ax_f, (-200, 0), (-200, total_h_mm), f"{total_h_mm:,.0f}mm", offset=0)
 
-        if panels_w <= 1000:
-            for c in range(int(panels_w) + 1):
-                x = c * spec["Width(mm)"]
-                ax_front.plot([x, x], [0, total_h_mm], color='black', linewidth=0.1, alpha=0.5, zorder=6)
-            for r in range(int(panels_h) + 1):
-                y = r * spec["Height(mm)"]
-                ax_front.plot([0, total_w_mm], [y, y], color='black', linewidth=0.1, alpha=0.5, zorder=6)
-
-        pdf_px = total_w_mm + 500
+        # Person
+        px = total_w_mm + 500
         if os.path.exists("person.png"):
-            img = mpimg.imread("person.png")
-            aspect_ratio = img.shape[1] / img.shape[0]
-            ax_front.imshow(img, extent=[pdf_px, pdf_px + (1750*aspect_ratio), 0, 1750], zorder=10)
-        else:
-             ax_front.add_patch(patches.Rectangle((pdf_px, 0), 600, 1750, color="#ccc"))
+            im = mpimg.imread("person.png")
+            ar = im.shape[1]/im.shape[0]
+            ax_f.imshow(im, extent=[px, px+(1750*ar), 0, 1750])
+        else: ax_f.add_patch(patches.Rectangle((px, 0), 600, 1750, color='#ccc'))
         
-        ax_front.autoscale_view()
-        
-        ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.22])
+        ax_f.autoscale_view()
+
+        # Top View
+        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
         
         if not is_curved:
-            start_x = -(total_w_mm / 2)
-            ax_top.add_patch(patches.Rectangle((start_x, 0), total_w_mm, 100, linewidth=1, edgecolor='black', facecolor=p_color))
-            pdf_py = 1000
+            sx = -total_w_mm/2
+            ax_top.add_patch(patches.Rectangle((sx, 0), total_w_mm, 100, fc=spec["Color"], ec='black'))
+            # DIMS
+            draw_dim_line(ax_top, (sx, -200), (sx+total_w_mm, -200), f"{total_w_mm:,.0f}mm")
+            py = 1000
         else:
-            center_x = 0
-            center_y = curve_radius 
-            start_angle = 270 - (curve_angle / 2)
-            current_a = math.radians(start_angle)
-            angle_step = curve_angle / panels_w
-            for i in range(int(panels_w)):
-                x1 = center_x + curve_radius * math.cos(current_a)
-                y1 = center_y + curve_radius * math.sin(current_a)
-                x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
-                y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
-                r_out = curve_radius + panel_thick
-                x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
-                y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
-                x4 = center_x + r_out * math.cos(current_a)
-                y4 = center_y + r_out * math.sin(current_a)
-                ax_top.add_patch(patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='black', facecolor=p_color))
-                current_a += math.radians(angle_step)
-            pdf_py = min(curve_radius, phys_d + 3000)
+            cx, cy = 0, curve_radius
+            sa = math.radians(270 - curve_angle/2)
+            step = math.radians(curve_angle) / panels_w
+            curr = sa
+            for _ in range(int(panels_w)):
+                p1 = (cx + curve_radius*math.cos(curr), cy + curve_radius*math.sin(curr))
+                p2 = (cx + curve_radius*math.cos(curr+step), cy + curve_radius*math.sin(curr+step))
+                p3 = (cx + (curve_radius+100)*math.cos(curr+step), cy + (curve_radius+100)*math.sin(curr+step))
+                p4 = (cx + (curve_radius+100)*math.cos(curr), cy + (curve_radius+100)*math.sin(curr))
+                ax_top.add_patch(patches.Polygon([p1,p2,p3,p4], fc=spec["Color"], ec='black'))
+                curr += step
+            
+            # Curve Dims (Chord Width)
+            c_half = phys_w/2
+            draw_dim_line(ax_top, (-c_half, -200), (c_half, -200), f"Chord: {phys_w:,.0f}mm")
+            # Sagitta
+            # Line from chord center to arc top
+            sagitta_y = phys_d
+            ax_top.plot([0,0], [0, sagitta_y], 'k:', lw=0.5)
+            ax_top.text(50, sagitta_y/2, f"D: {phys_d:,.0f}mm", fontsize=6)
+            
+            py = min(curve_radius, phys_d + 3000)
 
         if os.path.exists("top_person.png"):
-            img_top = mpimg.imread("top_person.png")
-            t_aspect = img_top.shape[1] / img_top.shape[0]
-            t_w = 600
-            t_h = t_w / t_aspect
-            ax_top.imshow(img_top, extent=[-t_w/2, t_w/2, pdf_py - t_h/2, pdf_py + t_h/2])
-        else:
-            ax_top.add_patch(patches.Circle((0, pdf_py), 200, color='#333'))
-
+            im = mpimg.imread("top_person.png")
+            ar = im.shape[1]/im.shape[0]
+            w = 600
+            ax_top.imshow(im, extent=[-w/2, w/2, py-(w/ar)/2, py+(w/ar)/2])
+        else: ax_top.add_patch(patches.Circle((0, py), 200, color='#333'))
+        
         ax_top.autoscale_view()
         
         buf = io.BytesIO()
@@ -400,174 +351,147 @@ with st.sidebar:
         return buf
 
     st.divider()
-    pdf_buffer = create_pdf_figure()
-    st.download_button(
-        label="📄 Download Spec Sheet (PDF)",
-        data=pdf_buffer,
-        file_name=f"Bendac_Spec_{selected_prod}.pdf",
-        mime="application/pdf",
-        use_container_width=True
-    )
+    st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
-    # --- COPY DATA (SIDEBAR) ---
     st.divider()
     with st.expander("Show Text Summary"):
-        summary_txt = f"""
+        t = f"""
 PRODUCT: {selected_prod} ({selected_pitch}mm)
 CONFIG: {panels_w} x {panels_h}
-DIMENSIONS: {total_w_mm}mm x {total_h_mm}mm
-RESOLUTION: {total_res_w} x {total_res_h} @ {target_fps}Hz
-POWER: {total_power_w/1000:.2f} kW
-WEIGHT: {total_weight_kg:.0f} kg
+DIMS: {total_w_mm}x{total_h_mm}mm
+RES: {total_res_w}x{total_res_h} @ {target_fps}Hz
+POWER: {total_power_w/1000:.1f}kW
+ELECTRICAL: {elec_str}
+WEIGHT: {total_weight_kg:.0f}kg
 HEAT: {btu_hr:.0f} BTU/hr
 PROCESSORS: {proc_str}
-DATA PORTS: {total_ports_needed}x 1G
 VIDEO INPUTS: {input_str}
 """
-        if is_accuvision:
-            summary_txt += f"IMAGE GENERATORS: {ig_str}\n"
-        st.code(summary_txt, language="text")
+        if is_accuvision: t += f"IGs: {ig_str}"
+        st.code(t)
 
-# --- 4. MAIN DISPLAY ---
+# --- TABS FOR 2D / 3D ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
-# -- TOP METRICS --
+# Top Metrics
 m1, m2, m3, m4 = st.columns(4)
-
-dim_val = f"{total_w_mm:,.0f} x {total_h_mm:,.0f} mm"
-if use_imperial:
-    dim_val += f"\n({total_w_mm/304.8:,.1f}' x {total_h_mm/304.8:,.1f}')"
-m1.metric("Dimensions", dim_val)
-
+dim_s = f"{total_w_mm:,.0f} x {total_h_mm:,.0f} mm"
+if use_imperial: dim_s += f"\n({total_w_mm/304.8:,.1f}' x {total_h_mm/304.8:,.1f}')"
+m1.metric("Dimensions", dim_s)
 m2.metric("Resolution", f"{total_res_w} x {total_res_h} px")
 m3.metric("Max Power", f"{total_power_w/1000:.1f} kW")
+w_s = f"{total_weight_kg:,.0f} kg"
+if use_imperial: w_s += f" ({total_weight_kg*2.20462:,.0f} lbs)"
+m4.metric("Total Weight", w_s)
 
-w_val = f"{total_weight_kg:,.0f} kg"
-if use_imperial:
-    w_val += f" ({total_weight_kg*2.20462:,.0f} lbs)"
-m4.metric("Total Weight", w_val)
-
-# -- SECONDARY METRICS (Engineering) --
 e1, e2, e3, e4 = st.columns(4)
 e1.metric("Video Inputs", input_str)
-e2.metric("Processors", proc_str, help=f"Logic: {reason_str}")
+e2.metric("Processors", proc_str, help=reason_str)
 e3.metric("Data Ports", f"{total_ports_needed}x (1G)")
+e4.metric("Electrical", elec_str)
 
-# Swap 4th Metric based on product type
-if is_accuvision:
-    e4.metric("Image Generators", ig_str)
-else:
-    e4.metric("Heat Output", f"{btu_hr:,.0f} BTU/hr")
-
-# -- PROCESSOR UTILIZATION BAR --
 st.caption(f"Processor Load ({chassis_load_pct:.1f}%)")
 st.progress(min(chassis_load_pct/100, 1.0))
 
-if is_curved:
-    st.caption(f"**Curve Stats:** Radius: {curve_radius:,.0f}mm | Angle: {curve_angle:.1f}° | Footprint: {phys_w:,.0f}mm (W) x {phys_d:,.0f}mm (D)")
+tab2d, tab3d = st.tabs(["2D Engineering Views", "3D Interactive Model"])
 
-# --- 5. PLOTTING ---
-plot_col1, plot_col2 = st.columns(2)
+with tab2d:
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        f1, ax1 = plt.subplots(figsize=(6, 5))
+        ax1.set_title("FRONT VIEW")
+        ax1.axis('off')
+        ax1.set_aspect('equal')
+        fc = 'none' if content_img_data is not None else spec["Color"]
+        ax1.add_patch(patches.Rectangle((0, 0), total_w_mm, total_h_mm, fc=fc, ec='white', lw=1))
+        if content_img_data is not None: ax1.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm])
+        
+        # Grid
+        for i in range(int(panels_w)+1): ax1.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'w-', lw=0.2)
+        for i in range(int(panels_h)+1): ax1.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'w-', lw=0.2)
+        
+        px = total_w_mm + 500
+        if os.path.exists("person.png"):
+            im = mpimg.imread("person.png")
+            ar = im.shape[1]/im.shape[0]
+            ax1.imshow(im, extent=[px, px+(1750*ar), 0, 1750])
+        else: ax1.add_patch(patches.Rectangle((px, 0), 600, 1750, color='#888'))
+        
+        ax1.autoscale_view()
+        st.pyplot(f1)
 
-# --- Define Common Settings ---
-person_h = 1750
-panel_color = spec["Color"]
+    with pc2:
+        f2, ax2 = plt.subplots(figsize=(6, 5))
+        ax2.set_title("TOP VIEW")
+        ax2.axis('off')
+        ax2.set_aspect('equal')
+        
+        if not is_curved:
+            sx = -total_w_mm/2
+            ax2.add_patch(patches.Rectangle((sx, 0), total_w_mm, 100, fc=spec["Color"], ec='black'))
+            py = 1000
+        else:
+            cx, cy = 0, curve_radius
+            sa = math.radians(270 - curve_angle/2)
+            step = math.radians(curve_angle) / panels_w
+            curr = sa
+            for _ in range(int(panels_w)):
+                p1 = (cx + curve_radius*math.cos(curr), cy + curve_radius*math.sin(curr))
+                p2 = (cx + curve_radius*math.cos(curr+step), cy + curve_radius*math.sin(curr+step))
+                p3 = (cx + (curve_radius+100)*math.cos(curr+step), cy + (curve_radius+100)*math.sin(curr+step))
+                p4 = (cx + (curve_radius+100)*math.cos(curr), cy + (curve_radius+100)*math.sin(curr))
+                ax2.add_patch(patches.Polygon([p1,p2,p3,p4], fc=spec["Color"], ec='white'))
+                curr += step
+            py = min(curve_radius, phys_d + 3000)
 
-# --- FRONT VIEW (AX1) ---
-with plot_col1:
-    fig1, ax1 = plt.subplots(figsize=(6, 5)) 
-    ax1.set_title("FRONT VIEW (Unfolded)")
-    ax1.set_aspect('equal')
-    ax1.axis('off')
+        if os.path.exists("top_person.png"):
+            im = mpimg.imread("top_person.png")
+            ar = im.shape[1]/im.shape[0]
+            w = 600
+            ax2.imshow(im, extent=[-w/2, w/2, py-(w/ar)/2, py+(w/ar)/2])
+        else: ax2.add_patch(patches.Circle((0, py), 200, color='#333'))
+        
+        ax2.autoscale_view()
+        st.pyplot(f2)
 
-    # Content Logic for Display
-    face_col = 'none' if content_img_data is not None else panel_color
+with tab3d:
+    # 3D MODEL LOGIC
+    # Generate points for the screen surface
+    theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), 50) if is_curved else np.zeros(50)
     
-    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=face_col, zorder=1)
-    ax1.add_patch(rect)
+    if is_curved:
+        # Cylinder coordinates (Swapped Y/Z for plotting orientation)
+        # X = Width, Z = Height, Y = Depth
+        # Center of curvature is at Y = curve_radius. Screen face is at (0,0) in flat mode.
+        # Let's map: x = r*cos(t), y = r*sin(t).
+        # We want screen center at (0,0).
+        x = curve_radius * np.cos(theta)
+        y = curve_radius * np.sin(theta)
+        # Shift so the chord center is near 0
+        y = y - curve_radius # Move arc to origin
+    else:
+        x = np.linspace(-total_w_mm/2, total_w_mm/2, 50)
+        y = np.zeros(50) # Flat
     
-    if content_img_data is not None:
-        ax1.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=0)
-
-    for c in range(int(panels_w) + 1):
-        x = c * spec["Width(mm)"]
-        ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5, zorder=3)
-    for r in range(int(panels_h) + 1):
-        y = r * spec["Height(mm)"]
-        ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5, zorder=3)
-
-    p_x = total_w_mm + 500 
-    if os.path.exists("person.png"):
-        try:
-            img = mpimg.imread("person.png")
-            img_h_px, img_w_px = img.shape[:2]
-            aspect_ratio = img_w_px / img_h_px
-            target_h = person_h
-            target_w = target_h * aspect_ratio
-            ax1.imshow(img, extent=[p_x, p_x + target_w, 0, target_h], zorder=10)
-        except:
-            ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#ccc"))
-    else:
-        ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#888"))
-
-    ax1.autoscale_view()
-    ax1.margins(0.1)
-    st.pyplot(fig1, use_container_width=True)
-
-# --- TOP VIEW (AX2) ---
-with plot_col2:
-    fig2, ax2 = plt.subplots(figsize=(6, 5))
-    ax2.set_title("TOP VIEW (Plan)")
-    ax2.set_aspect('equal')
-    ax2.axis('off')
-
-    panel_thick = 100
-
-    if not is_curved:
-        start_x = -(total_w_mm / 2)
-        rect_top = patches.Rectangle((start_x, 0), total_w_mm, panel_thick, linewidth=1, edgecolor='black', facecolor=panel_color)
-        ax2.add_patch(rect_top)
-        person_y = 1000
-    else:
-        center_x = 0
-        center_y = curve_radius 
-        start_angle = 270 - (curve_angle / 2)
-        current_a = math.radians(start_angle)
-        angle_step = curve_angle / panels_w
-        for i in range(int(panels_w)):
-            x1 = center_x + curve_radius * math.cos(current_a)
-            y1 = center_y + curve_radius * math.sin(current_a)
-            x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
-            y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
-            r_out = curve_radius + panel_thick
-            x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
-            y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
-            x4 = center_x + r_out * math.cos(current_a)
-            y4 = center_y + r_out * math.sin(current_a)
-            poly = patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='white', facecolor=panel_color)
-            ax2.add_patch(poly)
-            current_a += math.radians(angle_step)
-        person_y = min(curve_radius, phys_d + 3000) 
-
-    if os.path.exists("top_person.png"):
-        try:
-            img_top = mpimg.imread("top_person.png")
-            t_h_px, t_w_px = img_top.shape[:2]
-            t_aspect = t_w_px / t_h_px
-            target_top_w = 600
-            target_top_h = target_top_w / t_aspect
-            extent = [
-                -target_top_w / 2, 
-                target_top_w / 2, 
-                person_y - target_top_h / 2, 
-                person_y + target_top_h / 2
-            ]
-            ax2.imshow(img_top, extent=extent)
-        except:
-            ax2.add_patch(patches.Circle((0, person_y), 200, color='#333'))
-    else:
-        ax2.add_patch(patches.Circle((0, person_y), 200, color='#333'))
-
-    ax2.autoscale_view()
-    ax2.margins(0.1)
-    st.pyplot(fig2, use_container_width=True)
+    # Create Mesh
+    z = np.linspace(0, total_h_mm, 10)
+    X, Z = np.meshgrid(x, z)
+    # Y needs to be tiled
+    Y = np.tile(y, (10, 1)).reshape(10, 50)
+    
+    fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale='Viridis', showscale=False)])
+    
+    # Add a "Person" reference (Cylinder)
+    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[2000], z=[0, 1750], mode='lines', line=dict(color='red', width=10), name='Person'))
+    
+    fig3d.update_layout(
+        scene = dict(
+            xaxis_title='Width (mm)',
+            yaxis_title='Depth (mm)',
+            zaxis_title='Height (mm)',
+            aspectmode='data'
+        ),
+        margin=dict(l=0, r=0, b=0, t=0),
+        height=600
+    )
+    st.plotly_chart(fig3d, use_container_width=True)
