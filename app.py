@@ -287,7 +287,7 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
+        ax_top = fig.add_axes([0.1, 0.045, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
