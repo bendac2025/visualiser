@@ -104,6 +104,7 @@ with st.sidebar:
     fps_opts = [60, 120, 240] if "AccuVision" in selected_prod else [60]
     target_fps = st.selectbox("Frame Rate (Hz)", fps_opts)
     
+    # --- ELECTRICAL CALC ---
     st.subheader("4. Electrical")
     voltage = st.selectbox("Voltage", [110, 208, 230, 240], index=2) 
     phase_type = st.radio("Phase", ["Single Phase", "3-Phase"], index=0)
@@ -148,9 +149,11 @@ with st.sidebar:
         card_cap = proc_data["card_capacity_60"] * fps_scale
         req_cards = math.ceil(total_pixels / card_cap)
         chassis_cap = proc_data["capacity_60"] * fps_scale
+        
         req_chassis_slots = math.ceil(req_cards / proc_data["slots"])
         req_chassis_bw = math.ceil(total_pixels / chassis_cap)
         total_chassis = max(req_chassis_slots, req_chassis_bw)
+        
         load_pct = (total_pixels / (total_chassis * chassis_cap)) * 100 if total_chassis > 0 else 0
         proc_str = f"{total_chassis}x {proc_model.split('(')[0]} ({req_cards}x 40G Cards)"
         reason_str = "Bandwidth" if req_chassis_bw > req_chassis_slots else "Slots"
@@ -160,6 +163,7 @@ with st.sidebar:
 
     video_inputs = math.ceil(total_pixels / (8294400 * fps_scale))
     input_str = f"{video_inputs}x 4K Inputs"
+    
     is_accuvision = "AccuVision" in selected_prod
     ig_str = f"{math.ceil(video_inputs / 4)}x Image Generators" if is_accuvision else ""
 
@@ -179,36 +183,28 @@ with st.sidebar:
         x1, y1 = start
         x2, y2 = end
         
-        # Calculate normal vector
         dx = x2 - x1
         dy = y2 - y1
         length = math.sqrt(dx**2 + dy**2)
         if length == 0: return
         
-        # Unit vector perpendicular (-dy, dx)
         nx = -dy / length
         ny = dx / length
         
-        # Offset points
         ox1 = x1 + nx * offset_dist
         oy1 = y1 + ny * offset_dist
         ox2 = x2 + nx * offset_dist
         oy2 = y2 + ny * offset_dist
         
-        # Extension lines (dashed)
         ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
         
-        # Dimension line (solid with arrows)
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        # Text positioning (slightly further out)
-        tx = (ox1 + ox2) / 2 + nx * 200 
-        ty = (oy1 + oy2) / 2 + ny * 200
+        tx = (ox1 + ox2) / 2 + nx * 400 
+        ty = (oy1 + oy2) / 2 + ny * 400
         
-        # Calculate angle for text rotation
         angle = math.degrees(math.atan2(dy, dx))
-        # Ensure text is readable (not upside down)
         if 90 < angle <= 270 or -270 < angle <= -90:
             angle += 180
             
@@ -282,7 +278,6 @@ with st.sidebar:
             for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
-        # DIMS - Outset by 1000mm
         draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-1000)
         draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-1000)
 
@@ -304,7 +299,6 @@ with st.sidebar:
         if not is_curved:
             sx = -total_w_mm/2
             ax_top.add_patch(patches.Rectangle((sx, 0), total_w_mm, 100, fc=spec["Color"], ec='black'))
-            # DIMS - Outset
             draw_dim_line(ax_top, (sx, 0), (sx+total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-1000)
             py = 1000
         else:
@@ -320,10 +314,8 @@ with st.sidebar:
                 ax_top.add_patch(patches.Polygon([p1,p2,p3,p4], fc=spec["Color"], ec='black'))
                 curr += step
             
-            # Chord Width - Outset
             c_half = phys_w/2
-            # Use sagitta y-pos to place dimension below the curve
-            bottom_y = cy + curve_radius*math.sin(math.radians(270)) # lowest point approx
+            bottom_y = cy + curve_radius*math.sin(math.radians(270)) 
             
             draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Chord: {phys_w:,.0f}mm", offset_dist=-1000)
             
@@ -447,24 +439,17 @@ with tab2d:
 
 with tab3d:
     # 3D MODEL LOGIC
-    # Align Center at (0,0,0) with curve apex at Origin
+    # Center of Curvature at (0,0)
+    # Angle range: 270 - A/2 to 270 + A/2.
+    # X = R cos(t), Y = R sin(t).
+    # Since 270 is -Y, the apex is at (0, -R).
+    # We want apex at (0,0). So Shift Y by +R.
+    # Result: Apex at (0,0). Ends at Y>0. Curves "Back".
     
     if is_curved:
-        # Curve Apex is at (0,0) in 2D plot logic (after shifting).
-        # Our 2D math was: Center at (0, R). Apex at (0, R - R) = (0,0).
-        # Angle range: 270 - A/2 to 270 + A/2.
-        
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), 50)
-        
-        # In Plotly 3D: X=Width, Z=Height, Y=Depth.
-        # R * cos(theta) -> X
-        # R * sin(theta) -> Y (Depth).
-        # Apex is at 270 deg. sin(270) = -1. Y = -R.
-        # We want Apex at Y=0. So Y_new = Y_old + R.
-        
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, 50)
         y = np.zeros(50) 
@@ -475,17 +460,32 @@ with tab3d:
     
     fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale='Viridis', showscale=False)])
     
-    # 3D Person Reference (Cylinder)
-    # Place person 2m in front (Y = 2000)
-    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[2000, 2000], z=[0, 1750], mode='lines', line=dict(color='red', width=5), name='Person'))
+    # 3D Person Reference (Stick Figure)
+    # Head at (0, 2000, 1750)
+    # Body line from (0, 2000, 0) to (0, 2000, 1750)
+    # Position: 2m in front (Y=2000? No, screen is at 0 and curves to +Y. Front is -Y).
+    # So person should be at (0, -2000, 0).
     
-    # Enforce strict Aspect Ratio to prevent elongation
+    px, py = 0, -2000
+    
+    # Body
+    fig3d.add_trace(go.Scatter3d(
+        x=[px, px], y=[py, py], z=[0, 1750],
+        mode='lines', line=dict(color='red', width=5), name='Person'
+    ))
+    # Head
+    fig3d.add_trace(go.Scatter3d(
+        x=[px], y=[py], z=[1750],
+        mode='markers', marker=dict(size=5, color='red'), showlegend=False
+    ))
+    
     fig3d.update_layout(
         scene = dict(
             xaxis_title='Width (mm)',
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
-            aspectmode='data' # This forces 1 unit = 1 unit on all axes
+            aspectmode='data', # Critical for proportional scaling
+            camera=dict(eye=dict(x=0, y=-2.5, z=0.5)) # Default view from front
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
