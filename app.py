@@ -111,6 +111,7 @@ with st.sidebar:
     st.subheader("5. Visual Context")
     content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
     
+    # --- IMAGE PRE-PROCESSING ---
     content_img_data = None
     if content_file:
         try:
@@ -426,9 +427,26 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
-    # 3D MODEL
-    resolution_x = 200 # Increased for "Pixel" look
-    resolution_z = 40
+    # 3D MODEL LOGIC
+    # DYNAMIC PIXEL DENSITY: Max 40,000 points to prevent lag
+    # Keep aspect ratio correct
+    MAX_POINTS = 40000
+    
+    # Calculate target grid size
+    # resolution_x * resolution_z <= 40000
+    # Aspect Ratio = TotalW / TotalH
+    # res_x / res_z = AR
+    # res_x = AR * res_z
+    # (AR * res_z) * res_z = 40000
+    # res_z^2 = 40000 / AR
+    
+    aspect = total_w_mm / max(1, total_h_mm)
+    resolution_z = int(math.sqrt(MAX_POINTS / aspect))
+    resolution_x = int(resolution_z * aspect)
+    
+    # Clamp minimums to ensure a mesh exists
+    resolution_z = max(10, resolution_z)
+    resolution_x = max(10, resolution_x)
     
     if is_curved:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
@@ -443,43 +461,54 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
-    # --- IMAGE TO LED PIXEL CONVERSION ---
-    # We switch from Surface to Scatter3d to guarantee color accuracy (no shading artifact)
-    
+    # --- TEXTURE MAPPING FIX ---
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
+            
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
             
-            # Flatten arrays for Scatter Plot
+            # MIRROR horizontally for "Inner Face" viewing
+            img_arr = np.fliplr(img_arr)
+            
+            # Use Python list of strings for color
+            surface_color = [
+                [f'rgb({img_arr[r, c, 0]},{img_arr[r, c, 1]},{img_arr[r, c, 2]})' 
+                 for c in range(resolution_x)] 
+                for r in range(resolution_z)
+            ]
+            
+            # flatten for Scatter3d
             x_flat = X.flatten()
             y_flat = Y.flatten()
             z_flat = Z.flatten()
             
-            # Create color list [rgb(r,g,b), ...]
-            color_flat = [f'rgb({r},{g},{b})' for r,g,b in img_arr.reshape(-1, 3)]
+            color_flat = []
+            for r in range(resolution_z):
+                for c in range(resolution_x):
+                    color_flat.append(surface_color[r][c])
             
+            # Using Scatter3d (Pixels) instead of Surface (Mesh) guarantees no "Red Block" shader error
             fig3d = go.Figure(data=[go.Scatter3d(
-                x=x_flat, y=y_flat, z=z_flat, 
-                mode='markers', 
+                x=x_flat, y=y_flat, z=z_flat,
+                mode='markers',
                 marker=dict(size=4, color=color_flat, symbol='square'),
                 name='LED Pixels'
             )])
-        except:
-            # Fallback
+            
+        except Exception as e:
+            st.error(f"Texture Error: {e}")
             c_hex = spec["Color"]
             fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)])
     else:
-        # Standard Blue Surface if no image
         c_hex = spec["Color"]
         fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)])
     
-    # 3D Stick Figure - Focal Point
-    # Position: Y = Radius relative to screen center
+    # 3D Stick Figure at focal point Y=Radius
     if is_curved:
-        person_y_pos = curve_radius
+        person_y_pos = curve_radius 
     else:
         person_y_pos = 2000
 
