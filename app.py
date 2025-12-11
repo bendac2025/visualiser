@@ -9,15 +9,7 @@ import io
 import numpy as np
 from PIL import Image
 import plotly.graph_objects as go
-
-# Add this near the top of app.py
-st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
+import urllib.parse  # Added here to prevent indentation errors
 
 # --- 1. CONFIG & DATABASE ---
 st.set_page_config(page_title="Bendac Visualiser", layout="wide")
@@ -134,25 +126,19 @@ with st.sidebar:
     total_weight_kg = panels_w * panels_h * spec["Weight(kg)"]
     btu_hr = total_power_w * 3.412142
     
-    # --- ELECTRICAL & PDU RECOMMENDATION ---
+    # Electrical Logic
     pdu_rec = ""
     if phase_type == "Single Phase":
         total_amps = total_power_w / voltage
         elec_str = f"{total_amps:.1f}A @ {voltage}V (1-Phase)"
-        
-        # PDU Logic 1-Phase
         if total_amps <= 13: pdu_rec = "13A Standard / 16A CEE"
         elif total_amps <= 16: pdu_rec = "1x 16A 1-Phase CEE"
         elif total_amps <= 32: pdu_rec = "1x 32A 1-Phase CEE"
         elif total_amps <= 63: pdu_rec = "1x 63A 1-Phase CEE"
         else: pdu_rec = "Multiple Feeds / Switch to 3-Phase"
-        
     else:
-        # 3-Phase formula
         total_amps = total_power_w / (voltage * 1.732)
         elec_str = f"{total_amps:.1f}A/Line @ {voltage}V (3-Phase)"
-        
-        # PDU Logic 3-Phase
         if total_amps <= 32: pdu_rec = "1x 32A 3-Phase CEE"
         elif total_amps <= 63: pdu_rec = "1x 63A 3-Phase CEE"
         elif total_amps <= 125: pdu_rec = "1x 125A 3-Phase CEE"
@@ -270,7 +256,7 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        ax_f = fig.add_axes([0.1, 0.265, 0.8, 0.22])
+        ax_f = fig.add_axes([0.1, 0.28, 0.8, 0.22])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
         ax_f.axis('off')
@@ -284,8 +270,8 @@ with st.sidebar:
             for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
-        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
-        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=500)
+        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-300)
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-1500)
 
         px = total_w_mm + 500
         if os.path.exists("person.png"):
@@ -296,7 +282,7 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        ax_top = fig.add_axes([0.1, 0.045, 0.8, 0.22])
+        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
@@ -357,11 +343,9 @@ VIDEO INPUTS: {input_str}
 """
         if is_accuvision: t += f"IGs: {ig_str}"
         st.code(t)
-
-st.divider()
     
     # --- LEAD GEN: EMAIL BUTTON ---
-    import urllib.parse
+    st.divider()
     
     email_subject = f"Quote Request: {selected_prod} ({panels_w}x{panels_h})"
     email_body = f"""Hi Bendac Team,
@@ -373,10 +357,10 @@ Configuration: {panels_w} Wide x {panels_h} High
 Dimensions: {total_w_mm}mm x {total_h_mm}mm
 Curve: {'Yes' if is_curved else 'No'}
 Processing: {proc_model}
+Electrical: {elec_str} ({pdu_rec})
 
 Please contact me to discuss.
 """
-    # URL Encode the string for mailto
     safe_subject = urllib.parse.quote(email_subject)
     safe_body = urllib.parse.quote(email_body)
     mailto_link = f"mailto:info@bendac.tech?subject={safe_subject}&body={safe_body}"
@@ -387,6 +371,7 @@ Please contact me to discuss.
     st.caption("---")
     st.caption("📝 **Disclaimer:** All dimensions, weights, and power figures are estimates for visualization purposes only. Final engineering drawings should be requested from the Bendac technical team before construction.")
 
+# --- MAIN DISPLAY ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
 m1, m2, m3, m4 = st.columns(4)
