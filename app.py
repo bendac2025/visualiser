@@ -68,26 +68,36 @@ with st.sidebar:
     st.caption("VISUALIZER TOOL")
     st.header("Configuration")
     
-    # Product Selection
-    unique_products = df["Product Name"].unique()
-    selected_prod = st.selectbox("Product Series", unique_products)
+    # Product Selection (Default: Bendac Krystl Max)
+    unique_products = list(df["Product Name"].unique())
+    default_prod_index = 0
+    if "Bendac Krystl Max" in unique_products:
+        default_prod_index = unique_products.index("Bendac Krystl Max")
+        
+    selected_prod = st.selectbox("Product Series", unique_products, index=default_prod_index)
     
     # Filter for Pitches
     prod_rows = df[df["Product Name"] == selected_prod]
     available_pitches = sorted(prod_rows["Pitch(mm)"].unique())
-    selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches)
+    
+    # Pitch Selection (Default: 1.9 if available)
+    default_pitch_index = 0
+    if 1.9 in available_pitches:
+        default_pitch_index = available_pitches.index(1.9)
+        
+    selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches, index=default_pitch_index)
     
     # Get Data
     spec = prod_rows[prod_rows["Pitch(mm)"] == selected_pitch].iloc[0]
     
     st.divider()
     
-    # Dimensions
+    # Dimensions (Default: 1 Wide, 1 High)
     col1, col2 = st.columns(2)
     with col1:
-        panels_w = st.number_input("Panels Wide", min_value=1, value=8)
+        panels_w = st.number_input("Panels Wide", min_value=1, value=1)
     with col2:
-        panels_h = st.number_input("Panels High", min_value=1, value=5)
+        panels_h = st.number_input("Panels High", min_value=1, value=1)
         
     st.divider()
     
@@ -185,8 +195,8 @@ with st.sidebar:
                 cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
-        # 3. FRONT VIEW - Shifted DOWN to 0.35 (Top edge ~0.63)
-        ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.28])
+        # 3. FRONT VIEW - Middle
+        ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.30])
         ax_front.set_title("FRONT VIEW (Unfolded)")
         ax_front.set_aspect('equal')
         ax_front.axis('off')
@@ -214,7 +224,7 @@ with st.sidebar:
         
         ax_front.autoscale_view()
         
-        # 4. TOP VIEW
+        # 4. TOP VIEW - Bottom
         ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.28])
         ax_top.set_title("TOP VIEW (Plan)")
         ax_top.set_aspect('equal')
