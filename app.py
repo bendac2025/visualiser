@@ -254,9 +254,8 @@ with st.sidebar:
 
     # --- PDF GENERATION FUNCTION ---
     def create_pdf_figure():
-        # *** FIX START ***
-        panel_thick = 100 # Defined locally for PDF scope
-        # *** FIX END ***
+        # *** FIX ***: Define panel_thick locally for PDF logic
+        panel_thick = 100 
         
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
         
@@ -268,7 +267,8 @@ with st.sidebar:
         
         pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        ax_table = pdf_fig.add_axes([0.1, 0.60, 0.8, 0.20])
+        # Shifted Table Down to 0.58 to create space
+        ax_table = pdf_fig.add_axes([0.1, 0.58, 0.8, 0.22])
         ax_table.axis('off')
         
         dim_str = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
@@ -314,17 +314,22 @@ with st.sidebar:
             if j == 0: cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
-        ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.23])
+        # Shifted Front View Down to 0.30
+        ax_front = pdf_fig.add_axes([0.1, 0.30, 0.8, 0.23])
         ax_front.set_title("FRONT VIEW")
         ax_front.set_aspect('equal')
         ax_front.axis('off')
         
         p_color = spec["Color"]
-        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=p_color)
+        
+        # Check if content is uploaded to determine facecolor
+        front_facecolor = 'none' if content_img_data is not None else p_color
+        
+        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=front_facecolor)
         ax_front.add_patch(rect)
         
         if content_img_data is not None:
-            ax_front.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=5)
+            ax_front.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=0)
 
         if panels_w <= 1000:
             for c in range(int(panels_w) + 1):
@@ -344,7 +349,8 @@ with st.sidebar:
         
         ax_front.autoscale_view()
         
-        ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.25])
+        # Shifted Top View Down to 0.05
+        ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
@@ -470,11 +476,14 @@ with plot_col1:
     ax1.set_aspect('equal')
     ax1.axis('off')
 
-    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=panel_color, zorder=1)
+    # Determine facecolor based on content upload
+    screen_facecolor = 'none' if content_img_data is not None else panel_color
+
+    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=screen_facecolor, zorder=1)
     ax1.add_patch(rect)
     
     if content_img_data is not None:
-        ax1.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=2)
+        ax1.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=0)
 
     for c in range(int(panels_w) + 1):
         x = c * spec["Width(mm)"]
