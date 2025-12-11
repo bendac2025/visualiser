@@ -1,15 +1,19 @@
 import streamlit as st
 import pandas as pd
 import math
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.image as mpimg
 import os
 import io
 import numpy as np
 from PIL import Image
 import plotly.graph_objects as go
-import urllib.parse  # Added here to prevent indentation errors
+import urllib.parse
+
+# --- MATPLOTLIB HEADLESS FIX ---
+import matplotlib
+matplotlib.use("Agg") # <--- THIS IS THE KEY FIX
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.image as mpimg
 
 # --- 1. CONFIG & DATABASE ---
 st.set_page_config(page_title="Bendac Visualiser", layout="wide")
