@@ -412,22 +412,14 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
-    # 3D MODEL
     resolution_x = 100 
     resolution_z = 20
     
     if is_curved:
-        # Theta range centered at 270 (so south is "forward")
-        # To align Y+ as Inner Face, we need to shift geometry carefully.
-        # Standard polar: x=Rcos, y=Rsin. Center (0,0).
-        # At 270, sin is -1. So y = -R. This is "Front".
-        # Viewer is at (0,0). Screen is at R distance.
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        # Shift Y to center depth around 0.
-        # Max depth = phys_d. Midpoint = phys_d/2.
-        y = y - (phys_d / 2) 
+        y = y - (phys_d / 2) # Center depth
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
@@ -436,18 +428,22 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
-    # COLOR MAPPING LOGIC
-    # If image, convert to RGB strings. If not, use solid product color.
     if content_img_data is not None:
         try:
-            # Force RGB, resize to match grid
+            # 1. Force RGB (Drop Alpha)
+            # 2. Resize to match Mesh Grid (Z, X)
             pil_img = Image.fromarray(content_img_data).convert("RGB")
+            
+            # Note: Plotly maps surface color grid (0,0) to bottom-left of mesh.
+            # Image is Top-Left. We need to flip Vertically (Up/Down).
             pil_img = pil_img.resize((resolution_x, resolution_z))
             img_arr = np.array(pil_img)
-            # Flip to match Z-axis orientation
+            
+            # Flip Vertically for Z-axis alignment (Bottom to Top)
             img_arr = np.flipud(img_arr)
             
             # --- COLOR FIX: Create list of lists of strings ---
+            # Using standard nested list comprehension ensures Plotly reads this as explicit colors
             surface_color = [
                 [f'rgb({img_arr[r, c, 0]}, {img_arr[r, c, 1]}, {img_arr[r, c, 2]})' 
                  for c in range(resolution_x)] 
@@ -468,6 +464,9 @@ with tab3d:
     
     # 3D Stick Figure - Focal Point
     # Position: Y = +Radius - DepthShift
+    # If curved, R is distance from arc center to surface.
+    # We shifted surface by -phys_d/2.
+    # So center is at +Radius - phys_d/2.
     if is_curved:
         person_y_pos = curve_radius - (phys_d / 2)
     else:
