@@ -61,10 +61,6 @@ def load_data():
     return pd.DataFrame(backup_data)
 
 # --- PROCESSOR DATABASE ---
-# type: "fixed" or "modular"
-# capacity_60: Max pixels per unit (fixed) or per chassis (modular) @ 60Hz
-# card_capacity_60: For modular units, capacity of the preferred 40G card
-# slots: Number of output slots for modular units
 NOVASTAR_DB = {
     "Novastar MCTRL660 Pro": {
         "type": "fixed", 
@@ -84,14 +80,14 @@ NOVASTAR_DB = {
     },
     "Novastar MX2000 Pro (40G Cards)": {
         "type": "modular", 
-        "capacity_60": 35380000, # Chassis limit
-        "card_capacity_60": 26200000, # Approx 40G capacity
+        "capacity_60": 35380000,
+        "card_capacity_60": 26200000,
         "slots": 2
     },
     "Novastar MX6000 Pro (40G Cards)": {
         "type": "modular", 
-        "capacity_60": 141000000, # Chassis limit
-        "card_capacity_60": 26200000, # Approx 40G capacity
+        "capacity_60": 141000000, 
+        "card_capacity_60": 26200000,
         "slots": 8
     }
 }
@@ -199,37 +195,25 @@ with st.sidebar:
     # --- PROCESSOR CALCULATIONS ---
     fps_scale = 60 / target_fps
     
-    # 1G Port Calculation (Standard reference)
     port_capacity_60 = 650000 
     port_capacity_real = port_capacity_60 * fps_scale
     total_ports_needed = math.ceil(total_pixels / port_capacity_real)
     
-    # Processor Unit Calculation
     proc_data = NOVASTAR_DB[proc_model]
     
     if proc_data["type"] == "fixed":
-        # Fixed unit logic (e.g. 660 Pro, VX1000)
         unit_cap_real = proc_data["capacity_60"] * fps_scale
         total_procs_needed = math.ceil(total_pixels / unit_cap_real)
         proc_str = f"{total_procs_needed}x {proc_model}"
         
     else:
-        # Modular unit logic (MX2000/6000)
-        # 1. How many cards needed?
         card_cap_real = proc_data["card_capacity_60"] * fps_scale
         total_cards_needed = math.ceil(total_pixels / card_cap_real)
-        
-        # 2. How many chassis needed based on slots?
         slots_per_chassis = proc_data["slots"]
         chassis_by_slots = math.ceil(total_cards_needed / slots_per_chassis)
-        
-        # 3. How many chassis needed based on total bandwidth limit?
         chassis_cap_real = proc_data["capacity_60"] * fps_scale
         chassis_by_cap = math.ceil(total_pixels / chassis_cap_real)
-        
-        # Final Chassis Count is the max of both constraints
         total_chassis_needed = max(chassis_by_slots, chassis_by_cap)
-        
         proc_str = f"{total_chassis_needed}x {proc_model.split('(')[0]} ({total_cards_needed}x 40G Cards)"
 
     if is_curved and curve_radius > 0:
@@ -404,6 +388,10 @@ if is_curved:
 # --- 5. PLOTTING ---
 plot_col1, plot_col2 = st.columns(2)
 
+# --- Define Common Settings ---
+person_h = 1750
+panel_color = spec["Color"]
+
 # --- FRONT VIEW (AX1) ---
 with plot_col1:
     fig1, ax1 = plt.subplots(figsize=(6, 5)) 
@@ -516,4 +504,3 @@ with st.expander("Show Text Summary (Copy/Paste)"):
     DATA PORTS: {total_ports_needed}x 1G
     """
     st.code(summary_txt, language="text")
-    
