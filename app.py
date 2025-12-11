@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.image as mpimg
 import os
-import numpy as np
+import io
 
 # --- 1. CONFIG & DATABASE ---
 st.set_page_config(page_title="Bendac Visualiser", layout="wide")
@@ -158,8 +158,21 @@ plot_col1, plot_col2 = st.columns(2)
 person_h = 1750
 panel_color = spec["Color"]
 
+# Create a master figure for export
+# We will draw on separate axes but keep track of them for PDF export
+fig_export = plt.figure(figsize=(12, 6))
+
 # --- FRONT VIEW (AX1) ---
 with plot_col1:
+    # Use the export figure's subplot mechanism or create new ones? 
+    # To display nicely in Streamlit columns, we create individual figures for display,
+    # but for the PDF download, we want them together.
+    # Approach: Create individual figs for UI. Re-create logic for PDF or save individual figs?
+    # Simplest: Just save the specific figure the user wants. 
+    # User Request: "Download PDF button". Typically implies the Drawing Plan.
+    
+    # Let's create a combined figure for the PDF logic later, but separate for display.
+    
     fig1, ax1 = plt.subplots(figsize=(6, 5)) 
     ax1.set_title("FRONT VIEW (Unfolded)")
     ax1.set_aspect('equal')
@@ -170,17 +183,19 @@ with plot_col1:
     ax1.add_patch(rect)
 
     # Draw Grid Lines
-    # Logic: Draw all lines, rely on Matplotlib to handle rendering. 
-    # Performance is usually fine for <5000 lines.
-    for c in range(int(panels_w) + 1):
-        x = c * spec["Width(mm)"]
-        ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5)
-    for r in range(int(panels_h) + 1):
-        y = r * spec["Height(mm)"]
-        ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5)
+    if panels_w <= 2000 and panels_h <= 2000:
+        for c in range(int(panels_w) + 1):
+            x = c * spec["Width(mm)"]
+            ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5)
+        for r in range(int(panels_h) + 1):
+            y = r * spec["Height(mm)"]
+            ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5)
+
+    # **FLOOR LINE FIX**: Add a ground line to prevent floating appearance
+    ax1.axhline(0, color='black', linewidth=1, xmin=0.05, xmax=0.95)
 
     # Draw Person (IMAGE)
-    p_x = total_w_mm + 500 # Position 500mm to the right
+    p_x = total_w_mm + 500 
     
     if os.path.exists("person.png"):
         try:
@@ -189,15 +204,16 @@ with plot_col1:
             aspect_ratio = img_w_px / img_h_px
             target_h = person_h
             target_w = target_h * aspect_ratio
-            ax1.imshow(img, extent=[p_x, p_x + target_w, 0, target_h])
+            
+            # Ensure extent bottom is exactly 0
+            ax1.imshow(img, extent=[p_x, p_x + target_w, 0, target_h], zorder=10)
         except Exception as e:
             st.error(f"Error loading person.png: {e}")
             ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#ccc"))
     else:
-        # Fallback if file missing
+        # Fallback
         ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#888"))
 
-    # Auto-Scale
     ax1.autoscale_view()
     ax1.margins(0.1)
     st.pyplot(fig1, use_container_width=True)
@@ -212,17 +228,13 @@ with plot_col2:
     panel_thick = 100
 
     if not is_curved:
-        # Flat View
+        # Flat
         start_x = -(total_w_mm / 2)
-        # Screen
         rect_top = patches.Rectangle((start_x, 0), total_w_mm, panel_thick, linewidth=1, edgecolor='black', facecolor=panel_color)
         ax2.add_patch(rect_top)
-        
-        # Viewer Position
         person_y = 1000
-        
     else:
-        # Curved View
+        # Curved
         center_x = 0
         center_y = curve_radius 
         
@@ -230,44 +242,34 @@ with plot_col2:
         angle_step = curve_angle / panels_w
         
         current_a = math.radians(start_angle)
-        step_a = math.radians(angle_step)
         
         for i in range(int(panels_w)):
-            # Inner Points
             x1 = center_x + curve_radius * math.cos(current_a)
             y1 = center_y + curve_radius * math.sin(current_a)
-            x2 = center_x + curve_radius * math.cos(current_a + step_a)
-            y2 = center_y + curve_radius * math.sin(current_a + step_a)
+            x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
+            y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
             
-            # Outer Points
             r_out = curve_radius + panel_thick
-            x3 = center_x + r_out * math.cos(current_a + step_a)
-            y3 = center_y + r_out * math.sin(current_a + step_a)
+            x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
+            y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
             x4 = center_x + r_out * math.cos(current_a)
             y4 = center_y + r_out * math.sin(current_a)
             
             poly = patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='white', facecolor=panel_color)
             ax2.add_patch(poly)
             
-            current_a += step_a
+            current_a += math.radians(angle_step)
 
-        # Viewer Position
         person_y = min(curve_radius, phys_d + 3000) 
 
-    # --- DRAW TOP PERSON IMAGE ---
-    # Center the person at (0, person_y)
+    # Top Person Image
     if os.path.exists("top_person.png"):
         try:
             img_top = mpimg.imread("top_person.png")
             t_h_px, t_w_px = img_top.shape[:2]
             t_aspect = t_w_px / t_h_px
-            
-            # Define approximate real-world size for top-down person (Shoulder width ~600mm)
             target_top_w = 600
             target_top_h = target_top_w / t_aspect
-            
-            # Extent: [left, right, bottom, top]
-            # Image centered at x=0, y=person_y
             extent = [
                 -target_top_w / 2, 
                 target_top_w / 2, 
@@ -275,17 +277,106 @@ with plot_col2:
                 person_y + target_top_h / 2
             ]
             ax2.imshow(img_top, extent=extent)
-            
         except Exception as e:
             st.error(f"Error loading top_person.png: {e}")
-            # Fallback
             ax2.add_patch(patches.Circle((0, person_y), 200, color='#333'))
     else:
-        # Fallback if file missing (Standard Circle)
         ax2.add_patch(patches.Circle((0, person_y), 200, color='#333'))
-        # Note: Text label "Viewer" removed as requested
 
     ax2.autoscale_view()
     ax2.margins(0.1)
 
     st.pyplot(fig2, use_container_width=True)
+
+# --- 6. PDF DOWNLOAD ---
+# We create a new combined figure just for the PDF to ensure it looks neat on one page
+def create_pdf_figure():
+    # Create a clean figure with 2 subplots
+    pdf_fig, (p_ax1, p_ax2) = plt.subplots(2, 1, figsize=(10, 14))
+    
+    # 1. Front View (Re-draw logic for PDF)
+    p_ax1.set_title(f"FRONT VIEW - {selected_prod} ({total_w_mm:.0f}x{total_h_mm:.0f}mm)")
+    p_ax1.set_aspect('equal')
+    p_ax1.axis('off')
+    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=panel_color)
+    p_ax1.add_patch(rect)
+    
+    # Grid
+    if panels_w <= 1000:
+        for c in range(int(panels_w) + 1):
+            x = c * spec["Width(mm)"]
+            p_ax1.plot([x, x], [0, total_h_mm], color='black', linewidth=0.2, alpha=0.5)
+        for r in range(int(panels_h) + 1):
+            y = r * spec["Height(mm)"]
+            p_ax1.plot([0, total_w_mm], [y, y], color='black', linewidth=0.2, alpha=0.5)
+
+    # Floor Line
+    p_ax1.axhline(0, color='black', linewidth=1)
+
+    # Person Image (reuse loaded img if avail)
+    pdf_px = total_w_mm + 500
+    if os.path.exists("person.png"):
+        img = mpimg.imread("person.png")
+        aspect_ratio = img.shape[1] / img.shape[0]
+        p_ax1.imshow(img, extent=[pdf_px, pdf_px + (1750*aspect_ratio), 0, 1750])
+    
+    p_ax1.autoscale_view()
+    
+    # 2. Top View (Re-draw logic for PDF)
+    p_ax2.set_title("TOP VIEW (Plan)")
+    p_ax2.set_aspect('equal')
+    p_ax2.axis('off')
+    
+    if not is_curved:
+        start_x = -(total_w_mm / 2)
+        p_ax2.add_patch(patches.Rectangle((start_x, 0), total_w_mm, 100, linewidth=1, edgecolor='black', facecolor=panel_color))
+        pdf_py = 1000
+    else:
+        # Curved logic copy
+        center_x = 0
+        center_y = curve_radius 
+        start_angle = 270 - (curve_angle / 2)
+        current_a = math.radians(start_angle)
+        angle_step = curve_angle / panels_w
+        for i in range(int(panels_w)):
+            x1 = center_x + curve_radius * math.cos(current_a)
+            y1 = center_y + curve_radius * math.sin(current_a)
+            x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
+            y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
+            r_out = curve_radius + 100
+            x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
+            y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
+            x4 = center_x + r_out * math.cos(current_a)
+            y4 = center_y + r_out * math.sin(current_a)
+            p_ax2.add_patch(patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='black', facecolor=panel_color))
+            current_a += math.radians(angle_step)
+        pdf_py = min(curve_radius, phys_d + 3000)
+
+    # Top Person
+    if os.path.exists("top_person.png"):
+        img_top = mpimg.imread("top_person.png")
+        t_aspect = img_top.shape[1] / img_top.shape[0]
+        t_w = 600
+        t_h = t_w / t_aspect
+        p_ax2.imshow(img_top, extent=[-t_w/2, t_w/2, pdf_py - t_h/2, pdf_py + t_h/2])
+
+    p_ax2.autoscale_view()
+    
+    # Save to buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format="pdf", bbox_inches='tight')
+    buf.seek(0)
+    return buf
+
+# Download Button
+st.divider()
+col_dl, col_blank = st.columns([1, 4])
+with col_dl:
+    if st.button("Prepare PDF"):
+        pdf_buffer = create_pdf_figure()
+        st.download_button(
+            label="Download Spec Sheet (PDF)",
+            data=pdf_buffer,
+            file_name=f"Bendac_Spec_{selected_prod}.pdf",
+            mime="application/pdf"
+        )
