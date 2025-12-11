@@ -279,13 +279,13 @@ with st.sidebar:
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
         # Front View Dimensions
-        # Horizontal: Tight (-300mm offset)
-        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-300)
+        # Horizontal: Tight (-500mm offset)
+        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
         
         # Vertical: Outside Left Edge
         # Vertical line goes (0,0) to (0,H). Normal is (-1,0) [Left].
         # Positive offset pushes it Left.
-        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=1500)
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=500)
 
         px = total_w_mm + 500
         if os.path.exists("person.png"):
