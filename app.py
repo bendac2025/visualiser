@@ -110,10 +110,25 @@ with st.sidebar:
 
     st.subheader("5. Visual Context")
     content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
+    
+    # --- IMAGE PRE-PROCESSING ---
     content_img_data = None
     if content_file:
-        try: content_img_data = np.array(Image.open(content_file))
-        except: pass
+        try:
+            image = Image.open(content_file)
+            content_img_data = np.array(image)
+            st.image(image, caption="Uploaded Content Preview", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error loading image: {e}")
+            
+    # DEBUG EXPANDER
+    with st.expander("Debug Image Data"):
+        if content_img_data is not None:
+            st.write(f"Image Loaded: Yes")
+            st.write(f"Shape: {content_img_data.shape}")
+            st.write(f"Type: {content_img_data.dtype}")
+        else:
+            st.write("Image Loaded: No")
 
     # --- CALCULATIONS ---
     total_w_mm = panels_w * spec["Width(mm)"]
@@ -314,6 +329,8 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
+    # --- COPY DATA (SIDEBAR) ---
+    st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
 PRODUCT: {selected_prod} ({selected_pitch}mm)
@@ -429,23 +446,30 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
+    # --- TEXTURE MAPPING FIX ---
     if content_img_data is not None:
         try:
+            # Force RGB & standard INT format
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
             
-            # Use Python list of strings for color
+            # Use Python list of strings for color (Robust to Plotly JS serialization)
             surface_color = [
                 [f'rgb({img_arr[r, c, 0]},{img_arr[r, c, 1]},{img_arr[r, c, 2]})' 
                  for c in range(resolution_x)] 
                 for r in range(resolution_z)
             ]
             
-            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False, 
-                              lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0, roughness=1.0, fresnel=0.0))
-        except:
+            surf = go.Surface(
+                x=X, y=Y, z=Z, 
+                surfacecolor=surface_color, 
+                showscale=False, 
+                lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0, roughness=1.0, fresnel=0.0)
+            )
+        except Exception as e:
+            st.error(f"Texture Error: {e}")
             c_hex = spec["Color"]
             surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
     else:
@@ -454,9 +478,14 @@ with tab3d:
 
     fig3d = go.Figure(data=[surf])
     
-    # 3D Stick Figure at Y=Radius (Relative to Screen Center)
-    # If curved, R is distance from arc center to surface.
-    person_y_pos = curve_radius if is_curved else 2000
+    # 3D Stick Figure at focal point Y=Radius
+    # Revert to simple logic: Center of curve is +Radius away from surface center
+    # Note: Our surface is shifted by -Depth/2.
+    # So true center = Radius - Depth/2
+    if is_curved:
+        person_y_pos = curve_radius - (phys_d / 2)
+    else:
+        person_y_pos = 2000
 
     fig3d.add_trace(go.Scatter3d(
         x=[0, 0], y=[person_y_pos, person_y_pos], z=[0, 1750],
@@ -473,7 +502,7 @@ with tab3d:
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
             aspectmode='data',
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) 
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # Overview Angle
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
