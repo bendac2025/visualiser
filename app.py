@@ -104,7 +104,6 @@ with st.sidebar:
     fps_opts = [60, 120, 240] if "AccuVision" in selected_prod else [60]
     target_fps = st.selectbox("Frame Rate (Hz)", fps_opts)
     
-    # --- ELECTRICAL CALC ---
     st.subheader("4. Electrical")
     voltage = st.selectbox("Voltage", [110, 208, 230, 240], index=2) 
     phase_type = st.radio("Phase", ["Single Phase", "3-Phase"], index=0)
@@ -149,11 +148,9 @@ with st.sidebar:
         card_cap = proc_data["card_capacity_60"] * fps_scale
         req_cards = math.ceil(total_pixels / card_cap)
         chassis_cap = proc_data["capacity_60"] * fps_scale
-        
         req_chassis_slots = math.ceil(req_cards / proc_data["slots"])
         req_chassis_bw = math.ceil(total_pixels / chassis_cap)
         total_chassis = max(req_chassis_slots, req_chassis_bw)
-        
         load_pct = (total_pixels / (total_chassis * chassis_cap)) * 100 if total_chassis > 0 else 0
         proc_str = f"{total_chassis}x {proc_model.split('(')[0]} ({req_cards}x 40G Cards)"
         reason_str = "Bandwidth" if req_chassis_bw > req_chassis_slots else "Slots"
@@ -163,7 +160,6 @@ with st.sidebar:
 
     video_inputs = math.ceil(total_pixels / (8294400 * fps_scale))
     input_str = f"{video_inputs}x 4K Inputs"
-    
     is_accuvision = "AccuVision" in selected_prod
     ig_str = f"{math.ceil(video_inputs / 4)}x Image Generators" if is_accuvision else ""
 
@@ -201,8 +197,13 @@ with st.sidebar:
         
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        tx = (ox1 + ox2) / 2 + nx * 400 
-        ty = (oy1 + oy2) / 2 + ny * 400
+        # --- FIX: Ensure text is placed BEYOND the dimension line ---
+        # If offset_dist is negative (down/left), we subtract more.
+        # If positive (up/right), we add more.
+        text_push = 400 if offset_dist >= 0 else -400
+        
+        tx = (ox1 + ox2) / 2 + nx * text_push
+        ty = (oy1 + oy2) / 2 + ny * text_push
         
         angle = math.degrees(math.atan2(dy, dx))
         if 90 < angle <= 270 or -270 < angle <= -90:
@@ -338,6 +339,7 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
+    # --- COPY DATA (SIDEBAR) ---
     st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
@@ -439,13 +441,6 @@ with tab2d:
 
 with tab3d:
     # 3D MODEL LOGIC
-    # Center of Curvature at (0,0)
-    # Angle range: 270 - A/2 to 270 + A/2.
-    # X = R cos(t), Y = R sin(t).
-    # Since 270 is -Y, the apex is at (0, -R).
-    # We want apex at (0,0). So Shift Y by +R.
-    # Result: Apex at (0,0). Ends at Y>0. Curves "Back".
-    
     if is_curved:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), 50)
         x = curve_radius * np.cos(theta)
@@ -460,22 +455,17 @@ with tab3d:
     
     fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale='Viridis', showscale=False)])
     
-    # 3D Person Reference (Stick Figure)
-    # Head at (0, 2000, 1750)
-    # Body line from (0, 2000, 0) to (0, 2000, 1750)
-    # Position: 2m in front (Y=2000? No, screen is at 0 and curves to +Y. Front is -Y).
-    # So person should be at (0, -2000, 0).
-    
-    px, py = 0, -2000
+    # 3D Person (Stick Figure at Y=Radius)
+    person_y = curve_radius if is_curved else 2000
     
     # Body
     fig3d.add_trace(go.Scatter3d(
-        x=[px, px], y=[py, py], z=[0, 1750],
+        x=[0, 0], y=[person_y, person_y], z=[0, 1750],
         mode='lines', line=dict(color='red', width=5), name='Person'
     ))
     # Head
     fig3d.add_trace(go.Scatter3d(
-        x=[px], y=[py], z=[1750],
+        x=[0], y=[person_y], z=[1750],
         mode='markers', marker=dict(size=5, color='red'), showlegend=False
     ))
     
@@ -485,7 +475,7 @@ with tab3d:
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
             aspectmode='data', # Critical for proportional scaling
-            camera=dict(eye=dict(x=0, y=-2.5, z=0.5)) # Default view from front
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # Camera from +Y (Inside Curve)
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
