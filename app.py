@@ -143,22 +143,19 @@ with st.sidebar:
         # Create A4 Size Figure
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
         
-        # 1. HEADER LOGIC
-        # Logo Centered at Top
-        # Axes: [left, bottom, width, height]
-        # Page width is 1.0. Logo width 0.3. Center X = (1 - 0.3)/2 = 0.35
+        # 1. HEADER (Logo & Title) - Top 15%
         if os.path.exists("logo.png"):
+            # Logo Centered
             ax_logo = pdf_fig.add_axes([0.35, 0.89, 0.3, 0.08]) 
             img_logo = mpimg.imread("logo.png")
             ax_logo.imshow(img_logo)
             ax_logo.axis('off')
         
-        # Title Text - Positioned with clearance below logo
-        # Logo bottom is at 0.89. We place text at 0.85 to create the gap.
+        # Title Text - Positioned at 0.85 (Clearance from Logo)
         pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # 2. DATA TABLE - Below Title
-        ax_table = pdf_fig.add_axes([0.1, 0.68, 0.8, 0.15])
+        # 2. DATA TABLE - Shifted DOWN to 0.66 (Top edge ~0.81) to create gap
+        ax_table = pdf_fig.add_axes([0.1, 0.66, 0.8, 0.15])
         ax_table.axis('off')
         
         table_data = [
@@ -188,8 +185,8 @@ with st.sidebar:
                 cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
-        # 3. FRONT VIEW - Middle
-        ax_front = pdf_fig.add_axes([0.1, 0.36, 0.8, 0.30])
+        # 3. FRONT VIEW - Shifted DOWN to 0.35 (Top edge ~0.63)
+        ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.28])
         ax_front.set_title("FRONT VIEW (Unfolded)")
         ax_front.set_aspect('equal')
         ax_front.axis('off')
@@ -217,7 +214,7 @@ with st.sidebar:
         
         ax_front.autoscale_view()
         
-        # 4. TOP VIEW - Bottom
+        # 4. TOP VIEW
         ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.28])
         ax_top.set_title("TOP VIEW (Plan)")
         ax_top.set_aspect('equal')
