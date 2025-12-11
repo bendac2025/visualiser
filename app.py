@@ -172,12 +172,21 @@ with st.sidebar:
 
     # --- PDF GENERATOR ---
     def draw_dim_line(ax, start, end, text, offset_dist=1000, color='black'):
+        """
+        Draws a dimension line offset from the object.
+        offset_dist: Distance to push the line away.
+        """
         x1, y1 = start
         x2, y2 = end
+        
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx**2 + dy**2)
         if length == 0: return
+        
+        # Normal vectors
         nx, ny = -dy / length, dx / length
+        
+        # Offset points for the line
         ox1, oy1 = x1 + nx * offset_dist, y1 + ny * offset_dist
         ox2, oy2 = x2 + nx * offset_dist, y2 + ny * offset_dist
         
@@ -185,24 +194,36 @@ with st.sidebar:
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        text_push = 400 if offset_dist >= 0 else -400
-        tx, ty = (ox1 + ox2)/2 + nx*text_push, (oy1 + oy2)/2 + ny*text_push
+        # --- TEXT PLACEMENT FIX ---
+        # Logic: If offset_dist is negative (Left/Down), push text further Negative.
+        # If positive (Right/Up), push text further Positive.
+        # This prevents text from being "inside" the dimension line.
+        text_push_extra = 600 if offset_dist >= 0 else -600
+        
+        # Add the extra push to the base offset
+        tx = (x1 + x2) / 2 + nx * (offset_dist + text_push_extra)
+        ty = (y1 + y2) / 2 + ny * (offset_dist + text_push_extra)
+        
         angle = math.degrees(math.atan2(dy, dx))
         if 90 < angle <= 270 or -270 < angle <= -90: angle += 180
-        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, bbox=dict(facecolor='white', edgecolor='none', pad=1))
+        
+        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, 
+                bbox=dict(facecolor='white', edgecolor='none', pad=1))
 
     def create_pdf():
         panel_thick = 100
         fig = plt.figure(figsize=(8.27, 11.69))
         
         if os.path.exists("logo.png"):
-            ax_l = fig.add_axes([0.35, 0.89, 0.3, 0.08])
+            ax_l = fig.add_axes([0.35, 0.90, 0.3, 0.08])
             ax_l.imshow(mpimg.imread("logo.png"))
             ax_l.axis('off')
         
-        fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
+        # Title moved closer to logo (0.86)
+        fig.text(0.5, 0.86, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        ax_t = fig.add_axes([0.1, 0.58, 0.8, 0.20])
+        # Table moved down to 0.62 (Gap created)
+        ax_t = fig.add_axes([0.1, 0.62, 0.8, 0.20])
         ax_t.axis('off')
         
         d_s = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
@@ -243,7 +264,8 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        ax_f = fig.add_axes([0.1, 0.30, 0.8, 0.23])
+        # Front View moved down to 0.33
+        ax_f = fig.add_axes([0.1, 0.33, 0.8, 0.23])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
         ax_f.axis('off')
@@ -257,8 +279,11 @@ with st.sidebar:
             for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
-        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-1000)
-        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-1000)
+        # DIMS - Width & Height
+        # Horizontal: Tighter offset (-500)
+        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
+        # Vertical: Left side (-1500 to clear image), Text pushed further Left (-2100)
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-1500)
 
         px = total_w_mm + 500
         if os.path.exists("person.png"):
@@ -269,6 +294,7 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
+        # Top View moved down to 0.05
         ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
@@ -294,7 +320,7 @@ with st.sidebar:
             
             c_half = phys_w/2
             bottom_y = cy + curve_radius*math.sin(math.radians(270)) 
-            draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Chord: {phys_w:,.0f}mm", offset_dist=-1000)
+            draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Diameter: {phys_w:,.0f}mm", offset_dist=-1000)
             py = min(curve_radius, phys_d + 3000)
 
         if os.path.exists("top_person.png"):
@@ -314,8 +340,6 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
-    # --- COPY DATA (SIDEBAR) ---
-    st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
 PRODUCT: {selected_prod} ({selected_pitch}mm)
@@ -414,62 +438,36 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
-    # 3D MODEL LOGIC
-    # DYNAMIC PIXEL DENSITY
-    MAX_POINTS = 40000
-    aspect = total_w_mm / max(1, total_h_mm)
-    resolution_z = int(math.sqrt(MAX_POINTS / aspect))
-    resolution_x = int(resolution_z * aspect)
-    resolution_z = max(10, resolution_z)
-    resolution_x = max(10, resolution_x)
+    # 3D MODEL
+    resolution_x = 100 
+    resolution_z = 20
     
     if is_curved:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        # Coordinate Correction: Center of curvature is at (0,0). Apex at (0,0).
-        # Normal polar (270) gives (0, -R). We shift +R to 0.
-        # But wait, logic below sets center at (0,0,0).
-        # We need the surface to be at 0,0,0 at its center.
-        # If Viewer is at (0,0), Surface is at (0, -R).
-        # If we want Viewer at (0,0), we leave Surface at (0, -R).
-        # Revert: Place Surface Center at (0,0). Place Viewer at (0, R).
+        y = y - (phys_d / 2) 
         
-        # New Logic: Center the ARC at 0,0,0
-        # X = R cos, Y = R sin. (Circle centered 0,0).
-        # Apex is at (0, -R).
-        # Shift Y by +R to place apex at 0.
-        # Then shift Y by -Depth/2 to center the volume.
-        # But user wants 0,0,0 to be the "Stick Figure" (Center of screen?). 
-        # Previous prompt: "Centre of curve is 0,0".
-        # If center of curve is 0,0, then Screen surface is at Distance R.
-        # So x = R cos, y = R sin.
-        x = curve_radius * np.cos(theta)
-        y = curve_radius * np.sin(theta)
-        
-        # Rear Surface
+        # Calculate Rear Surface (Solid Blue)
         x_rear = (curve_radius + 50) * np.cos(theta)
-        y_rear = (curve_radius + 50) * np.sin(theta)
-        
+        y_rear = ((curve_radius + 50) * np.sin(theta)) + curve_radius - (phys_d / 2)
     else:
-        # Flat
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
-        y = np.full(resolution_x, -2000) # Screen at -2m?
-        # User requested: 0,0,0 is center of screen.
         y = np.zeros(resolution_x)
         x_rear = x
-        y_rear = y + 50
+        y_rear = y + 50 # 50mm thick
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
     
+    # Rear Mesh
     Xr, Zr = np.meshgrid(x_rear, z)
     Yr = np.tile(y_rear, (resolution_z, 1))
 
     fig3d = go.Figure()
 
-    # 1. Front Face (Pixels)
+    # 1. Front Face (Content or Color)
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
@@ -477,15 +475,16 @@ with tab3d:
             
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
-            img_arr = np.fliplr(img_arr) # Mirror for inner face viewing
+            img_arr = np.fliplr(img_arr) # Fix for Inner Face mirroring
             
-            # Flatten
+            # flatten for Scatter3d
             x_flat = X.flatten()
             y_flat = Y.flatten()
             z_flat = Z.flatten()
             
             color_flat = [f'rgb({r},{g},{b})' for r,g,b in img_arr.reshape(-1, 3)]
             
+            # Using Scatter3d (Pixels) instead of Surface (Mesh) guarantees no "Red Block" shader error
             fig3d.add_trace(go.Scatter3d(
                 x=x_flat, y=y_flat, z=z_flat,
                 mode='markers',
@@ -499,27 +498,22 @@ with tab3d:
         c_hex = spec["Color"]
         fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
 
-    # 2. Rear Face
+    # 2. Rear Face (Solid Blue)
+    # Using Surface for the back is fine as it's solid color
     fig3d.add_trace(go.Surface(x=Xr, y=Yr, z=Zr, colorscale=[[0, '#4a90e2'], [1, '#4a90e2']], showscale=False, opacity=1.0, name='Back'))
 
-    # 3. Viewer (Stick Figure)
-    # If Curve Center is (0,0), then Viewer is at (0,0).
-    # If Screen is at (0, -R) [Apex], then Viewer is at (0,0).
-    # This matches the geometry: X=Rcos, Y=Rsin. Center is 0,0.
-    
+    # 3. Stick Figure
     if is_curved:
-        person_y = 0
-        person_z = 0
+        person_y_pos = curve_radius - (phys_d / 2)
     else:
-        # Flat screen is at 0,0. Viewer should be at +2000.
-        person_y = 2000
-    
+        person_y_pos = 2000
+
     fig3d.add_trace(go.Scatter3d(
-        x=[0, 0], y=[person_y, person_y], z=[0, 1750],
+        x=[0, 0], y=[person_y_pos, person_y_pos], z=[0, 1750],
         mode='lines', line=dict(color='red', width=8), name='Viewer'
     ))
     fig3d.add_trace(go.Scatter3d(
-        x=[0], y=[person_y], z=[1750],
+        x=[0], y=[person_y_pos], z=[1750],
         mode='markers', marker=dict(size=6, color='red'), showlegend=False
     ))
     
