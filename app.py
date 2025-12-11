@@ -276,7 +276,7 @@ with st.sidebar:
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
         draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
-        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-500)
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=500)
 
         px = total_w_mm + 500
         if os.path.exists("person.png"):
