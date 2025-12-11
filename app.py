@@ -427,28 +427,49 @@ with tab3d:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        y = y - (phys_d / 2) 
+        # Coordinate Correction: Center of curvature is at (0,0). Apex at (0,0).
+        # Normal polar (270) gives (0, -R). We shift +R to 0.
+        # But wait, logic below sets center at (0,0,0).
+        # We need the surface to be at 0,0,0 at its center.
+        # If Viewer is at (0,0), Surface is at (0, -R).
+        # If we want Viewer at (0,0), we leave Surface at (0, -R).
+        # Revert: Place Surface Center at (0,0). Place Viewer at (0, R).
         
-        # Calculate Rear Surface (Solid Blue)
+        # New Logic: Center the ARC at 0,0,0
+        # X = R cos, Y = R sin. (Circle centered 0,0).
+        # Apex is at (0, -R).
+        # Shift Y by +R to place apex at 0.
+        # Then shift Y by -Depth/2 to center the volume.
+        # But user wants 0,0,0 to be the "Stick Figure" (Center of screen?). 
+        # Previous prompt: "Centre of curve is 0,0".
+        # If center of curve is 0,0, then Screen surface is at Distance R.
+        # So x = R cos, y = R sin.
+        x = curve_radius * np.cos(theta)
+        y = curve_radius * np.sin(theta)
+        
+        # Rear Surface
         x_rear = (curve_radius + 50) * np.cos(theta)
-        y_rear = ((curve_radius + 50) * np.sin(theta)) + curve_radius - (phys_d / 2)
+        y_rear = (curve_radius + 50) * np.sin(theta)
+        
     else:
+        # Flat
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
+        y = np.full(resolution_x, -2000) # Screen at -2m?
+        # User requested: 0,0,0 is center of screen.
         y = np.zeros(resolution_x)
         x_rear = x
-        y_rear = y + 50 # 50mm thick
+        y_rear = y + 50
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
     
-    # Rear Mesh
     Xr, Zr = np.meshgrid(x_rear, z)
     Yr = np.tile(y_rear, (resolution_z, 1))
 
     fig3d = go.Figure()
 
-    # 1. Front Face (Content or Color)
+    # 1. Front Face (Pixels)
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
@@ -456,16 +477,15 @@ with tab3d:
             
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
-            img_arr = np.fliplr(img_arr) # Fix for Inner Face mirroring
+            img_arr = np.fliplr(img_arr) # Mirror for inner face viewing
             
-            # flatten for Scatter3d
+            # Flatten
             x_flat = X.flatten()
             y_flat = Y.flatten()
             z_flat = Z.flatten()
             
             color_flat = [f'rgb({r},{g},{b})' for r,g,b in img_arr.reshape(-1, 3)]
             
-            # Using Scatter3d (Pixels) instead of Surface (Mesh) guarantees no "Red Block" shader error
             fig3d.add_trace(go.Scatter3d(
                 x=x_flat, y=y_flat, z=z_flat,
                 mode='markers',
@@ -479,22 +499,27 @@ with tab3d:
         c_hex = spec["Color"]
         fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
 
-    # 2. Rear Face (Solid Blue)
-    # Using Surface for the back is fine as it's solid color
+    # 2. Rear Face
     fig3d.add_trace(go.Surface(x=Xr, y=Yr, z=Zr, colorscale=[[0, '#4a90e2'], [1, '#4a90e2']], showscale=False, opacity=1.0, name='Back'))
 
-    # 3. Stick Figure
+    # 3. Viewer (Stick Figure)
+    # If Curve Center is (0,0), then Viewer is at (0,0).
+    # If Screen is at (0, -R) [Apex], then Viewer is at (0,0).
+    # This matches the geometry: X=Rcos, Y=Rsin. Center is 0,0.
+    
     if is_curved:
-        person_y_pos = curve_radius - (phys_d / 2)
+        person_y = 0
+        person_z = 0
     else:
-        person_y_pos = 2000
-
+        # Flat screen is at 0,0. Viewer should be at +2000.
+        person_y = 2000
+    
     fig3d.add_trace(go.Scatter3d(
-        x=[0, 0], y=[person_y_pos, person_y_pos], z=[0, 1750],
+        x=[0, 0], y=[person_y, person_y], z=[0, 1750],
         mode='lines', line=dict(color='red', width=8), name='Viewer'
     ))
     fig3d.add_trace(go.Scatter3d(
-        x=[0], y=[person_y_pos], z=[1750],
+        x=[0], y=[person_y], z=[1750],
         mode='markers', marker=dict(size=6, color='red'), showlegend=False
     ))
     
