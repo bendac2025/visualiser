@@ -111,7 +111,6 @@ with st.sidebar:
     st.subheader("5. Visual Context")
     content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
     
-    # --- IMAGE PRE-PROCESSING ---
     content_img_data = None
     if content_file:
         try:
@@ -121,7 +120,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Error loading image: {e}")
             
-    # DEBUG EXPANDER
     with st.expander("Debug Image Data"):
         if content_img_data is not None:
             st.write(f"Raw Shape: {content_img_data.shape}")
@@ -328,6 +326,8 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
+    # --- COPY DATA (SIDEBAR) ---
+    st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
 PRODUCT: {selected_prod} ({selected_pitch}mm)
@@ -427,13 +427,14 @@ with tab2d:
 
 with tab3d:
     # 3D MODEL
-    resolution_x = 100 
-    resolution_z = 20
+    resolution_x = 200 # Increased for "Pixel" look
+    resolution_z = 40
     
     if is_curved:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
+        y = y - (phys_d / 2) 
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
@@ -442,41 +443,43 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
-    # COLOR MAPPING LOGIC (STRICT)
+    # --- IMAGE TO LED PIXEL CONVERSION ---
+    # We switch from Surface to Scatter3d to guarantee color accuracy (no shading artifact)
+    
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
-            
-            # Ensure strictly uint8 array before color conversion
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
             
-            # --- FIX: Pure Python int casting for RGB strings ---
-            surface_color = [
-                [f'rgb({int(img_arr[r, c, 0])},{int(img_arr[r, c, 1])},{int(img_arr[r, c, 2])})' 
-                 for c in range(resolution_x)] 
-                for r in range(resolution_z)
-            ]
+            # Flatten arrays for Scatter Plot
+            x_flat = X.flatten()
+            y_flat = Y.flatten()
+            z_flat = Z.flatten()
             
-            if content_img_data is not None:
-                st.sidebar.success(f"Texture OK: {resolution_x}x{resolution_z}")
-
-            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False)
-        except Exception as e:
-            # Explicitly show error in UI to diagnose
-            st.sidebar.error(f"Texture Error: {e}")
+            # Create color list [rgb(r,g,b), ...]
+            color_flat = [f'rgb({r},{g},{b})' for r,g,b in img_arr.reshape(-1, 3)]
+            
+            fig3d = go.Figure(data=[go.Scatter3d(
+                x=x_flat, y=y_flat, z=z_flat, 
+                mode='markers', 
+                marker=dict(size=4, color=color_flat, symbol='square'),
+                name='LED Pixels'
+            )])
+        except:
+            # Fallback
             c_hex = spec["Color"]
-            surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
+            fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)])
     else:
+        # Standard Blue Surface if no image
         c_hex = spec["Color"]
-        surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
-
-    fig3d = go.Figure(data=[surf])
+        fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)])
     
-    # 3D Stick Figure at focal point Y=Radius
+    # 3D Stick Figure - Focal Point
+    # Position: Y = Radius relative to screen center
     if is_curved:
-        person_y_pos = curve_radius 
+        person_y_pos = curve_radius
     else:
         person_y_pos = 2000
 
