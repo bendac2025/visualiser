@@ -202,7 +202,8 @@ with st.sidebar:
         
         fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        ax_t = fig.add_axes([0.1, 0.58, 0.8, 0.20])
+        # Moved table down to 0.55 to avoid header overlap
+        ax_t = fig.add_axes([0.1, 0.55, 0.8, 0.20])
         ax_t.axis('off')
         
         d_s = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
@@ -243,7 +244,7 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        ax_f = fig.add_axes([0.1, 0.30, 0.8, 0.23])
+        ax_f = fig.add_axes([0.1, 0.28, 0.8, 0.22])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
         ax_f.axis('off')
@@ -269,7 +270,7 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
+        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.20])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
@@ -412,6 +413,7 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
+    # 3D MODEL
     resolution_x = 100 
     resolution_z = 20
     
@@ -419,7 +421,7 @@ with tab3d:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        y = y - (phys_d / 2) # Center depth
+        y = y - (phys_d / 2) 
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
@@ -428,32 +430,24 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
+    # --- TEXTURE MAPPING FIX ---
     if content_img_data is not None:
         try:
-            # 1. Force RGB (Drop Alpha)
-            # 2. Resize to match Mesh Grid (Z, X)
+            # Force RGB
             pil_img = Image.fromarray(content_img_data).convert("RGB")
-            
-            # Note: Plotly maps surface color grid (0,0) to bottom-left of mesh.
-            # Image is Top-Left. We need to flip Vertically (Up/Down).
             pil_img = pil_img.resize((resolution_x, resolution_z))
             img_arr = np.array(pil_img)
-            
-            # Flip Vertically for Z-axis alignment (Bottom to Top)
             img_arr = np.flipud(img_arr)
             
-            # --- COLOR FIX: Create list of lists of strings ---
-            # Using standard nested list comprehension ensures Plotly reads this as explicit colors
+            # Create list of lists for Plotly color
             surface_color = [
                 [f'rgb({img_arr[r, c, 0]}, {img_arr[r, c, 1]}, {img_arr[r, c, 2]})' 
                  for c in range(resolution_x)] 
                 for r in range(resolution_z)
             ]
-                
-            # Disable shadows (diffuse/specular=0) for "Emissive" effect
-            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False, 
-                              lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0, roughness=1.0, fresnel=0.0))
-        except:
+            
+            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False)
+        except Exception as e:
             c_hex = spec["Color"]
             surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
     else:
@@ -462,22 +456,16 @@ with tab3d:
 
     fig3d = go.Figure(data=[surf])
     
-    # 3D Stick Figure - Focal Point
-    # Position: Y = +Radius - DepthShift
-    # If curved, R is distance from arc center to surface.
-    # We shifted surface by -phys_d/2.
-    # So center is at +Radius - phys_d/2.
+    # 3D Stick Figure at focal point Y=Radius
     if is_curved:
         person_y_pos = curve_radius - (phys_d / 2)
     else:
         person_y_pos = 2000
 
-    # Body
     fig3d.add_trace(go.Scatter3d(
         x=[0, 0], y=[person_y_pos, person_y_pos], z=[0, 1750],
         mode='lines', line=dict(color='red', width=8), name='Viewer'
     ))
-    # Head
     fig3d.add_trace(go.Scatter3d(
         x=[0], y=[person_y_pos], z=[1750],
         mode='markers', marker=dict(size=6, color='red'), showlegend=False
@@ -489,7 +477,7 @@ with tab3d:
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
             aspectmode='data',
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # +Y view
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) 
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
