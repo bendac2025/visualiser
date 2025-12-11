@@ -297,6 +297,21 @@ with st.sidebar:
         the_table.set_fontsize(9)
         the_table.scale(1, 1.6)
         
+        # --- ROW HEIGHT ADJUSTMENT LOGIC ---
+        # Iterate through cells to find multi-line text and increase height
+        for row_idx, row_data in enumerate(table_data):
+            content_cell = row_data[1] # The value column
+            if "\n" in content_cell:
+                # Calculate new height (1.8x default)
+                # Note: Table indices include (row, col)
+                # row indices match enumerate if no header
+                current_height = the_table[row_idx, 0].get_height()
+                new_height = current_height * 1.8
+                
+                # Apply to both columns in this row
+                the_table[row_idx, 0].set_height(new_height)
+                the_table[row_idx, 1].set_height(new_height)
+
         for (i, j), cell in the_table.get_celld().items():
             if j == 0: cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
@@ -351,7 +366,7 @@ with st.sidebar:
                 y1 = center_y + curve_radius * math.sin(current_a)
                 x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
                 y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
-                r_out = curve_radius + 100
+                r_out = curve_radius + panel_thick
                 x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
                 y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
                 x4 = center_x + r_out * math.cos(current_a)
