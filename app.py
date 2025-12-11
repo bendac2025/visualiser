@@ -61,33 +61,38 @@ def load_data():
     return pd.DataFrame(backup_data)
 
 # --- PROCESSOR DATABASE ---
+# Updated with Port Counts for Fixed units
 NOVASTAR_DB = {
     "Novastar MCTRL660 Pro": {
         "type": "fixed", 
-        "capacity_60": 2300000 
+        "capacity_60": 2300000,
+        "ports": 6
     },
     "Novastar VX1000": {
         "type": "fixed", 
-        "capacity_60": 6500000 
+        "capacity_60": 6500000,
+        "ports": 10
     },
     "Novastar MCTRL4K": {
         "type": "fixed", 
-        "capacity_60": 8800000 
+        "capacity_60": 8800000,
+        "ports": 16
     },
     "Novastar MX40 Pro": {
         "type": "fixed", 
-        "capacity_60": 8800000 
+        "capacity_60": 8800000,
+        "ports": 20
     },
     "Novastar MX2000 Pro (40G Cards)": {
         "type": "modular", 
-        "capacity_60": 35380000,
-        "card_capacity_60": 26200000,
+        "capacity_60": 35380000, # Chassis limit
+        "card_capacity_60": 26200000, # Approx 40G capacity (40x 1G)
         "slots": 2
     },
     "Novastar MX6000 Pro (40G Cards)": {
         "type": "modular", 
         "capacity_60": 141000000, 
-        "card_capacity_60": 26200000,
+        "card_capacity_60": 26200000, 
         "slots": 8
     }
 }
@@ -169,7 +174,6 @@ with st.sidebar:
     st.subheader("3. Processing (Novastar)")
     proc_model = st.selectbox("Processor Model", list(NOVASTAR_DB.keys()))
     
-    # Frame Rate Logic
     if "AccuVision" in selected_prod:
         fps_options = [60, 120, 240]
     else:
@@ -195,24 +199,37 @@ with st.sidebar:
     # --- PROCESSOR CALCULATIONS ---
     fps_scale = 60 / target_fps
     
-    port_capacity_60 = 650000 
+    # 1G Port Calculation
+    port_capacity_60 = 655360 # Precise 1G capacity
     port_capacity_real = port_capacity_60 * fps_scale
     total_ports_needed = math.ceil(total_pixels / port_capacity_real)
     
     proc_data = NOVASTAR_DB[proc_model]
     
     if proc_data["type"] == "fixed":
+        # Check Pixel Capacity
         unit_cap_real = proc_data["capacity_60"] * fps_scale
-        total_procs_needed = math.ceil(total_pixels / unit_cap_real)
+        procs_by_pixels = math.ceil(total_pixels / unit_cap_real)
+        
+        # Check Port Count
+        ports_per_unit = proc_data["ports"]
+        procs_by_ports = math.ceil(total_ports_needed / ports_per_unit)
+        
+        # Take the maximum required
+        total_procs_needed = max(procs_by_pixels, procs_by_ports)
         proc_str = f"{total_procs_needed}x {proc_model}"
         
     else:
+        # Modular
         card_cap_real = proc_data["card_capacity_60"] * fps_scale
         total_cards_needed = math.ceil(total_pixels / card_cap_real)
+        
         slots_per_chassis = proc_data["slots"]
         chassis_by_slots = math.ceil(total_cards_needed / slots_per_chassis)
+        
         chassis_cap_real = proc_data["capacity_60"] * fps_scale
         chassis_by_cap = math.ceil(total_pixels / chassis_cap_real)
+        
         total_chassis_needed = max(chassis_by_slots, chassis_by_cap)
         proc_str = f"{total_chassis_needed}x {proc_model.split('(')[0]} ({total_cards_needed}x 40G Cards)"
 
@@ -254,7 +271,7 @@ with st.sidebar:
             ["Max Power / Heat", f"{total_power_w/1000:.1f} kW  /  {btu_hr:,.0f} BTU/hr"],
             ["Total Weight", weight_str],
             ["Processing", proc_str],
-            ["Data Capacity", f"{total_ports_needed}x 1G Ports required (Ref)"],
+            ["Data Capacity", f"{total_ports_needed}x 1G Ports (Required)"],
         ]
         
         if is_curved:
@@ -274,7 +291,10 @@ with st.sidebar:
         ax_front.set_aspect('equal')
         ax_front.axis('off')
         
-        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=spec["Color"])
+        # Define panel_color and person_h for PDF scope
+        p_color = spec["Color"]
+        
+        rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=p_color)
         ax_front.add_patch(rect)
         
         if content_file:
@@ -308,7 +328,7 @@ with st.sidebar:
         
         if not is_curved:
             start_x = -(total_w_mm / 2)
-            ax_top.add_patch(patches.Rectangle((start_x, 0), total_w_mm, 100, linewidth=1, edgecolor='black', facecolor=spec["Color"]))
+            ax_top.add_patch(patches.Rectangle((start_x, 0), total_w_mm, 100, linewidth=1, edgecolor='black', facecolor=p_color))
             pdf_py = 1000
         else:
             center_x = 0
@@ -326,7 +346,7 @@ with st.sidebar:
                 y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
                 x4 = center_x + r_out * math.cos(current_a)
                 y4 = center_y + r_out * math.sin(current_a)
-                ax_top.add_patch(patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='black', facecolor=spec["Color"]))
+                ax_top.add_patch(patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='black', facecolor=p_color))
                 current_a += math.radians(angle_step)
             pdf_py = min(curve_radius, phys_d + 3000)
 
