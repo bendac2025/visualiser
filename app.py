@@ -180,7 +180,6 @@ with st.sidebar:
         nx, ny = -dy / length, dx / length
         ox1, oy1 = x1 + nx * offset_dist, y1 + ny * offset_dist
         ox2, oy2 = x2 + nx * offset_dist, y2 + ny * offset_dist
-        
         ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
@@ -314,7 +313,6 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
-    st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
 PRODUCT: {selected_prod} ({selected_pitch}mm)
@@ -413,76 +411,57 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
-    # 3D MODEL
     resolution_x = 100 
     resolution_z = 20
     
     if is_curved:
-        # Theta range centered at 270 (so south is "forward")
-        # To align Y+ as Inner Face, we need to shift geometry carefully.
-        # Standard polar: x=Rcos, y=Rsin. Center (0,0).
-        # At 270, sin is -1. So y = -R. This is "Front".
-        # Viewer is at (0,0). Screen is at R distance.
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
-        y = curve_radius * np.sin(theta)
+        y = (curve_radius * np.sin(theta)) + curve_radius
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
-        # Place flat screen at Y = -1000 so viewer at 0,0 is looking "forward" at it
         y = np.full(resolution_x, -1000)
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
-    # COLOR MAPPING LOGIC
-    # If image, convert to RGB strings. If not, use solid product color.
     if content_img_data is not None:
-        # 1. Resize image to match mesh grid (resolution_x, resolution_z)
-        # Note: image array is (Height, Width, 3). Mesh is (Z, X).
-        # We need to resize img to (resolution_z, resolution_x)
-        pil_img = Image.fromarray(content_img_data)
-        pil_img = pil_img.resize((resolution_x, resolution_z))
-        
-        # 2. Flatten and convert to 'rgb(r,g,b)' strings
-        img_arr = np.array(pil_img)
-        # Flip vertically because mesh Z goes 0->Height (Bottom->Top), Image goes Top->Bottom
-        img_arr = np.flipud(img_arr)
-        
-        surface_color = np.empty((resolution_z, resolution_x), dtype=object)
-        for r in range(resolution_z):
-            for c in range(resolution_x):
-                # Check for alpha channel
-                if img_arr.shape[2] == 4:
-                    px = img_arr[r, c][:3]
-                else:
+        try:
+            # Force convert to RGB to drop Alpha and ensure compatibility
+            pil_img = Image.fromarray(content_img_data).convert("RGB")
+            pil_img = pil_img.resize((resolution_x, resolution_z))
+            img_arr = np.array(pil_img)
+            img_arr = np.flipud(img_arr)
+            
+            surface_color = np.empty((resolution_z, resolution_x), dtype=object)
+            for r in range(resolution_z):
+                for c in range(resolution_x):
                     px = img_arr[r, c]
-                surface_color[r, c] = f'rgb({px[0]},{px[1]},{px[2]})'
-                
-        # 3. Create Surface with explicit color mapping
-        surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False)
+                    surface_color[r, c] = f'rgb({px[0]},{px[1]},{px[2]})'
+            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False, lighting=dict(ambient=1.0))
+        except:
+            c_hex = spec["Color"]
+            surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
     else:
-        # Fallback solid color (using colorscale hack for uniform color)
-        # Create a dummy colorscale that is just the single color
         c_hex = spec["Color"]
         surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
 
     fig3d = go.Figure(data=[surf])
     
-    # 3D Stick Figure at (0,0,0) - The Focal Point
+    # 3D Stick Figure at (0,0,0) - Focal Point
+    # Body (0 to 1750mm)
+    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0, 1750], mode='lines', line=dict(color='red', width=8), name='Viewer'))
     # Head
-    fig3d.add_trace(go.Scatter3d(x=[0], y=[0], z=[1750], mode='markers', marker=dict(size=5, color='red'), name='Viewer Head'))
-    # Body
-    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0, 1750], mode='lines', line=dict(color='red', width=5), name='Viewer Body'))
+    fig3d.add_trace(go.Scatter3d(x=[0], y=[0], z=[1750], mode='markers', marker=dict(size=6, color='red'), showlegend=False))
     
     fig3d.update_layout(
         scene = dict(
             xaxis_title='Width (mm)',
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
-            aspectmode='data', # Strict Proportions
-            # Camera looking from behind the viewer (0, 2.5, 0.5) towards the screen (at -Y)
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5), center=dict(x=0, y=0, z=0))
+            aspectmode='data',
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # Viewer's POV
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
