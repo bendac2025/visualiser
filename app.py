@@ -125,12 +125,29 @@ with st.sidebar:
     total_weight_kg = panels_w * panels_h * spec["Weight(kg)"]
     btu_hr = total_power_w * 3.412142
     
+    # --- ELECTRICAL & PDU RECOMMENDATION ---
+    pdu_rec = ""
     if phase_type == "Single Phase":
         total_amps = total_power_w / voltage
         elec_str = f"{total_amps:.1f}A @ {voltage}V (1-Phase)"
+        
+        # PDU Logic 1-Phase
+        if total_amps <= 13: pdu_rec = "13A Standard / 16A CEE"
+        elif total_amps <= 16: pdu_rec = "1x 16A 1-Phase CEE"
+        elif total_amps <= 32: pdu_rec = "1x 32A 1-Phase CEE"
+        elif total_amps <= 63: pdu_rec = "1x 63A 1-Phase CEE"
+        else: pdu_rec = "Multiple Feeds / Switch to 3-Phase"
+        
     else:
+        # 3-Phase formula
         total_amps = total_power_w / (voltage * 1.732)
         elec_str = f"{total_amps:.1f}A/Line @ {voltage}V (3-Phase)"
+        
+        # PDU Logic 3-Phase
+        if total_amps <= 32: pdu_rec = "1x 32A 3-Phase CEE"
+        elif total_amps <= 63: pdu_rec = "1x 63A 3-Phase CEE"
+        elif total_amps <= 125: pdu_rec = "1x 125A 3-Phase CEE"
+        else: pdu_rec = "Powerlock / Multiple 125A Feeds"
 
     fps_scale = 60 / target_fps
     total_ports_needed = math.ceil(total_pixels / (655360 * fps_scale))
@@ -172,43 +189,24 @@ with st.sidebar:
 
     # --- PDF GENERATOR ---
     def draw_dim_line(ax, start, end, text, offset_dist=1000, color='black'):
-        """
-        Draws a dimension line offset from the object.
-        offset_dist: How far away (in mm) the line is pushed. 
-        Positive pushes 'right/up', Negative pushes 'left/down' relative to vector.
-        """
         x1, y1 = start
         x2, y2 = end
-        
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx**2 + dy**2)
         if length == 0: return
-        
-        # Unit Normal Vector (-y, x)
-        nx = -dy / length
-        ny = dx / length
-        
-        # Points for dimension line
+        nx, ny = -dy / length, dx / length
         ox1, oy1 = x1 + nx * offset_dist, y1 + ny * offset_dist
         ox2, oy2 = x2 + nx * offset_dist, y2 + ny * offset_dist
         
-        # Extension lines
         ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
-        # Main Arrow Line
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        # Text Position - Push further out
-        # If offset is negative, push further negative. If positive, further positive.
-        push_factor = 1.2
-        tx = (x1 + x2)/2 + nx * (offset_dist * push_factor)
-        ty = (y1 + y2)/2 + ny * (offset_dist * push_factor)
-        
+        text_push = 400 if offset_dist >= 0 else -400
+        tx, ty = (ox1 + ox2)/2 + nx*text_push, (oy1 + oy2)/2 + ny*text_push
         angle = math.degrees(math.atan2(dy, dx))
         if 90 < angle <= 270 or -270 < angle <= -90: angle += 180
-        
-        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, 
-                bbox=dict(facecolor='white', edgecolor='none', pad=1))
+        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, bbox=dict(facecolor='white', edgecolor='none', pad=1))
 
     def create_pdf():
         panel_thick = 100
@@ -221,7 +219,6 @@ with st.sidebar:
         
         fig.text(0.5, 0.86, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # Table moved down to 0.55 (Top at 0.75, Clear Gap)
         ax_t = fig.add_axes([0.1, 0.55, 0.8, 0.20])
         ax_t.axis('off')
         
@@ -239,6 +236,7 @@ with st.sidebar:
             ["Resolution", f"{total_res_w} px (W) x {total_res_h} px (H) @ {target_fps}Hz"],
             ["Max Power / Heat", f"{total_power_w/1000:.1f} kW  /  {btu_hr:,.0f} BTU/hr"],
             ["Electrical", elec_str],
+            ["Recommended Supply", pdu_rec],
             ["Total Weight", w_s],
             ["Processing", f"{proc_str}\n({reason_str} - Load: {load_pct:.1f}%)"],
             ["Data Capacity", f"{total_ports_needed}x 1G Ports required"],
@@ -263,7 +261,6 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        # Front View moved down to 0.28
         ax_f = fig.add_axes([0.1, 0.28, 0.8, 0.22])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
@@ -278,14 +275,8 @@ with st.sidebar:
             for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
-        # Front View Dimensions
-        # Horizontal: Tight (-500mm offset)
         draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
-        
-        # Vertical: Outside Left Edge
-        # Vertical line goes (0,0) to (0,H). Normal is (-1,0) [Left].
-        # Positive offset pushes it Left.
-        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=500)
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-500)
 
         px = total_w_mm + 500
         if os.path.exists("person.png"):
@@ -296,8 +287,7 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        # Top View
-        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.18])
+        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
@@ -350,6 +340,7 @@ DIMS: {total_w_mm}x{total_h_mm}mm
 RES: {total_res_w}x{total_res_h} @ {target_fps}Hz
 POWER: {total_power_w/1000:.1f}kW
 ELECTRICAL: {elec_str}
+SUPPLY: {pdu_rec}
 WEIGHT: {total_weight_kg:.0f}kg
 HEAT: {btu_hr:.0f} BTU/hr
 PROCESSORS: {proc_str}
@@ -374,7 +365,7 @@ e1, e2, e3, e4 = st.columns(4)
 e1.metric("Video Inputs", input_str)
 e2.metric("Processors", proc_str, help=reason_str)
 e3.metric("Data Ports", f"{total_ports_needed}x (1G)")
-e4.metric("Electrical", elec_str)
+e4.metric("Electrical", f"{elec_str} ({pdu_rec})")
 
 st.caption(f"Processor Load ({chassis_load_pct:.1f}%)")
 st.progress(min(chassis_load_pct/100, 1.0))
@@ -440,8 +431,6 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
-    # 3D MODEL
-    # DYNAMIC PIXEL DENSITY (Increased to 100k for smoothness)
     MAX_POINTS = 100000 
     aspect = total_w_mm / max(1, total_h_mm)
     resolution_z = int(math.sqrt(MAX_POINTS / aspect))
@@ -455,7 +444,6 @@ with tab3d:
         y = (curve_radius * np.sin(theta)) + curve_radius
         y = y - (phys_d / 2) 
         
-        # Rear Surface
         x_rear = (curve_radius + 50) * np.cos(theta)
         y_rear = ((curve_radius + 50) * np.sin(theta)) + curve_radius - (phys_d / 2)
     else:
@@ -473,7 +461,6 @@ with tab3d:
 
     fig3d = go.Figure()
 
-    # 1. Front Face (Content)
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
@@ -503,10 +490,8 @@ with tab3d:
         c_hex = spec["Color"]
         fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
 
-    # 2. Rear Face
     fig3d.add_trace(go.Surface(x=Xr, y=Yr, z=Zr, colorscale=[[0, '#4a90e2'], [1, '#4a90e2']], showscale=False, opacity=1.0, name='Back'))
 
-    # 3. Viewer
     if is_curved:
         person_y_pos = curve_radius - (phys_d / 2)
     else:
