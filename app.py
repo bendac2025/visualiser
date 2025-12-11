@@ -327,23 +327,6 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
-    with st.expander("Show Text Summary"):
-        t = f"""
-PRODUCT: {selected_prod} ({selected_pitch}mm)
-CONFIG: {panels_w} x {panels_h}
-DIMS: {total_w_mm}x{total_h_mm}mm
-RES: {total_res_w}x{total_res_h} @ {target_fps}Hz
-POWER: {total_power_w/1000:.1f}kW
-ELECTRICAL: {elec_str}
-SUPPLY: {pdu_rec}
-WEIGHT: {total_weight_kg:.0f}kg
-HEAT: {btu_hr:.0f} BTU/hr
-PROCESSORS: {proc_str}
-VIDEO INPUTS: {input_str}
-"""
-        if is_accuvision: t += f"IGs: {ig_str}"
-        st.code(t)
-    
     # --- LEAD GEN: EMAIL BUTTON ---
     st.divider()
     
