@@ -117,16 +117,15 @@ with st.sidebar:
         try:
             image = Image.open(content_file)
             content_img_data = np.array(image)
-            st.image(image, caption="Uploaded Content Preview", use_container_width=True)
+            st.image(image, caption="Uploaded Preview", use_container_width=True)
         except Exception as e:
             st.error(f"Error loading image: {e}")
             
     # DEBUG EXPANDER
     with st.expander("Debug Image Data"):
         if content_img_data is not None:
-            st.write(f"Image Loaded: Yes")
-            st.write(f"Shape: {content_img_data.shape}")
-            st.write(f"Type: {content_img_data.dtype}")
+            st.write(f"Raw Shape: {content_img_data.shape}")
+            st.write(f"Raw Type: {content_img_data.dtype}")
         else:
             st.write("Image Loaded: No")
 
@@ -329,8 +328,6 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
-    # --- COPY DATA (SIDEBAR) ---
-    st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
 PRODUCT: {selected_prod} ({selected_pitch}mm)
@@ -437,7 +434,6 @@ with tab3d:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        y = y - (phys_d / 2) # Center depth
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
@@ -446,30 +442,30 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
-    # --- TEXTURE MAPPING FIX ---
+    # COLOR MAPPING LOGIC (STRICT)
     if content_img_data is not None:
         try:
-            # Force RGB & standard INT format
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
+            
+            # Ensure strictly uint8 array before color conversion
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
             
-            # Use Python list of strings for color (Robust to Plotly JS serialization)
+            # --- FIX: Pure Python int casting for RGB strings ---
             surface_color = [
-                [f'rgb({img_arr[r, c, 0]},{img_arr[r, c, 1]},{img_arr[r, c, 2]})' 
+                [f'rgb({int(img_arr[r, c, 0])},{int(img_arr[r, c, 1])},{int(img_arr[r, c, 2])})' 
                  for c in range(resolution_x)] 
                 for r in range(resolution_z)
             ]
             
-            surf = go.Surface(
-                x=X, y=Y, z=Z, 
-                surfacecolor=surface_color, 
-                showscale=False, 
-                lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0, roughness=1.0, fresnel=0.0)
-            )
+            if content_img_data is not None:
+                st.sidebar.success(f"Texture OK: {resolution_x}x{resolution_z}")
+
+            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False)
         except Exception as e:
-            st.error(f"Texture Error: {e}")
+            # Explicitly show error in UI to diagnose
+            st.sidebar.error(f"Texture Error: {e}")
             c_hex = spec["Color"]
             surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
     else:
@@ -479,11 +475,8 @@ with tab3d:
     fig3d = go.Figure(data=[surf])
     
     # 3D Stick Figure at focal point Y=Radius
-    # Revert to simple logic: Center of curve is +Radius away from surface center
-    # Note: Our surface is shifted by -Depth/2.
-    # So true center = Radius - Depth/2
     if is_curved:
-        person_y_pos = curve_radius - (phys_d / 2)
+        person_y_pos = curve_radius 
     else:
         person_y_pos = 2000
 
@@ -502,7 +495,7 @@ with tab3d:
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
             aspectmode='data',
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # Overview Angle
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) 
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
