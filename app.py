@@ -416,29 +416,32 @@ with tab3d:
     resolution_x = 100 
     resolution_z = 20
     
+    # 1. CURVE MATH & CENTERING (Depth)
+    # ---------------------------------
     if is_curved:
-        # Theta: 270 is Back (-Y). 
-        # Screen Center: (0,0). Apex at 0,0.
-        # Original: x = R cos(t), y = R sin(t). Apex at (0, -R).
-        # Shift Y by +R so Apex is at 0.
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
+        # Shift Y to center depth around 0.
+        # Max depth = phys_d. Midpoint = phys_d/2.
+        y = y - (phys_d / 2) 
     else:
-        # Flat: Centered at 0,0
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
-        y = np.zeros(resolution_x) 
+        y = np.zeros(resolution_x)
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
+    # 2. IMAGE MAPPING (FIXED LIGHTING)
+    # ---------------------------------
     if content_img_data is not None:
         try:
             # Force RGB, resize to match grid
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
             img_arr = np.array(pil_img)
+            # Flip to match Z-axis orientation
             img_arr = np.flipud(img_arr)
             
             surface_color = np.empty((resolution_z, resolution_x), dtype=object)
@@ -446,7 +449,10 @@ with tab3d:
                 for c in range(resolution_x):
                     px = img_arr[r, c]
                     surface_color[r, c] = f'rgb({px[0]},{px[1]},{px[2]})'
-            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False, lighting=dict(ambient=1.0))
+            
+            # Disable shadows (diffuse/specular=0) for "Emissive" effect
+            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False, 
+                              lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0, roughness=1.0, fresnel=0.0))
         except:
             c_hex = spec["Color"]
             surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
@@ -456,12 +462,27 @@ with tab3d:
 
     fig3d = go.Figure(data=[surf])
     
-    # 3D Stick Figure at focal point Y=Radius (Curved) or Y=2000 (Flat)
-    # The viewer should be looking at the screen (at 0,0)
-    person_y = curve_radius if is_curved else 2000
-    
-    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[person_y, person_y], z=[0, 1750], mode='lines', line=dict(color='red', width=8), name='Viewer'))
-    fig3d.add_trace(go.Scatter3d(x=[0], y=[person_y], z=[1750], mode='markers', marker=dict(size=6, color='red'), showlegend=False))
+    # 3. VIEWER REFERENCE (1750mm Stick Figure)
+    # -----------------------------------------
+    # Position: Y = +Radius (Center of curvature) relative to the screen.
+    # Note: We shifted the screen by -phys_d/2. So origin (0,0) is screen center depth.
+    # Radius center was originally at (0, R). 
+    # New Radius Center = R - (phys_d/2).
+    if is_curved:
+        person_y_pos = curve_radius - (phys_d / 2)
+    else:
+        person_y_pos = 2000 # Default 2m back for flat screens
+
+    # Body Line
+    fig3d.add_trace(go.Scatter3d(
+        x=[0, 0], y=[person_y_pos, person_y_pos], z=[0, 1750],
+        mode='lines', line=dict(color='red', width=8), name='Viewer'
+    ))
+    # Head Dot
+    fig3d.add_trace(go.Scatter3d(
+        x=[0], y=[person_y_pos], z=[1750],
+        mode='markers', marker=dict(size=6, color='red'), showlegend=False
+    ))
     
     fig3d.update_layout(
         scene = dict(
@@ -469,7 +490,8 @@ with tab3d:
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
             aspectmode='data',
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5))
+            # Camera View: Looking from the person (inside curve) towards the screen (0,0,0)
+            camera=dict(eye=dict(x=0, y=0.1, z=0.5) if is_curved else dict(x=0, y=2.0, z=0.5))
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
