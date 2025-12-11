@@ -174,7 +174,8 @@ with st.sidebar:
     def draw_dim_line(ax, start, end, text, offset_dist=1000, color='black'):
         """
         Draws a dimension line offset from the object.
-        offset_dist: Distance to push the line away.
+        offset_dist: How far away (in mm) the line is pushed. 
+        Positive pushes 'right/up', Negative pushes 'left/down' relative to vector.
         """
         x1, y1 = start
         x2, y2 = end
@@ -183,26 +184,25 @@ with st.sidebar:
         length = math.sqrt(dx**2 + dy**2)
         if length == 0: return
         
-        # Normal vectors
-        nx, ny = -dy / length, dx / length
+        # Unit Normal Vector (-y, x)
+        nx = -dy / length
+        ny = dx / length
         
-        # Offset points for the line
+        # Points for dimension line
         ox1, oy1 = x1 + nx * offset_dist, y1 + ny * offset_dist
         ox2, oy2 = x2 + nx * offset_dist, y2 + ny * offset_dist
         
+        # Extension lines
         ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
+        # Main Arrow Line
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        # --- TEXT PLACEMENT FIX ---
-        # Logic: If offset_dist is negative (Left/Down), push text further Negative.
-        # If positive (Right/Up), push text further Positive.
-        # This prevents text from being "inside" the dimension line.
-        text_push_extra = 600 if offset_dist >= 0 else -600
-        
-        # Add the extra push to the base offset
-        tx = (x1 + x2) / 2 + nx * (offset_dist + text_push_extra)
-        ty = (y1 + y2) / 2 + ny * (offset_dist + text_push_extra)
+        # Text Position - Push further out
+        # If offset is negative, push further negative. If positive, further positive.
+        push_factor = 1.2
+        tx = (x1 + x2)/2 + nx * (offset_dist * push_factor)
+        ty = (y1 + y2)/2 + ny * (offset_dist * push_factor)
         
         angle = math.degrees(math.atan2(dy, dx))
         if 90 < angle <= 270 or -270 < angle <= -90: angle += 180
@@ -219,11 +219,10 @@ with st.sidebar:
             ax_l.imshow(mpimg.imread("logo.png"))
             ax_l.axis('off')
         
-        # Title moved closer to logo (0.86)
         fig.text(0.5, 0.86, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # Table moved down to 0.62 (Gap created)
-        ax_t = fig.add_axes([0.1, 0.62, 0.8, 0.20])
+        # Table moved down to 0.55 (Top at 0.75, Clear Gap)
+        ax_t = fig.add_axes([0.1, 0.55, 0.8, 0.20])
         ax_t.axis('off')
         
         d_s = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
@@ -264,8 +263,8 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        # Front View moved down to 0.33
-        ax_f = fig.add_axes([0.1, 0.33, 0.8, 0.23])
+        # Front View moved down to 0.28
+        ax_f = fig.add_axes([0.1, 0.28, 0.8, 0.22])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
         ax_f.axis('off')
@@ -279,11 +278,14 @@ with st.sidebar:
             for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
-        # DIMS - Width & Height
-        # Horizontal: Tighter offset (-500)
-        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
-        # Vertical: Left side (-1500 to clear image), Text pushed further Left (-2100)
-        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-1500)
+        # Front View Dimensions
+        # Horizontal: Tight (-300mm offset)
+        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-300)
+        
+        # Vertical: Outside Left Edge
+        # Vertical line goes (0,0) to (0,H). Normal is (-1,0) [Left].
+        # Positive offset pushes it Left.
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=1500)
 
         px = total_w_mm + 500
         if os.path.exists("person.png"):
@@ -294,8 +296,8 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        # Top View moved down to 0.05
-        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
+        # Top View
+        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.18])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
@@ -303,7 +305,7 @@ with st.sidebar:
         if not is_curved:
             sx = -total_w_mm/2
             ax_top.add_patch(patches.Rectangle((sx, 0), total_w_mm, 100, fc=spec["Color"], ec='black'))
-            draw_dim_line(ax_top, (sx, 0), (sx+total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-1000)
+            draw_dim_line(ax_top, (sx, 0), (sx+total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-500)
             py = 1000
         else:
             cx, cy = 0, curve_radius
@@ -320,7 +322,7 @@ with st.sidebar:
             
             c_half = phys_w/2
             bottom_y = cy + curve_radius*math.sin(math.radians(270)) 
-            draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Diameter: {phys_w:,.0f}mm", offset_dist=-1000)
+            draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Chord: {phys_w:,.0f}mm", offset_dist=-500)
             py = min(curve_radius, phys_d + 3000)
 
         if os.path.exists("top_person.png"):
@@ -439,8 +441,13 @@ with tab2d:
 
 with tab3d:
     # 3D MODEL
-    resolution_x = 100 
-    resolution_z = 20
+    # DYNAMIC PIXEL DENSITY (Increased to 100k for smoothness)
+    MAX_POINTS = 100000 
+    aspect = total_w_mm / max(1, total_h_mm)
+    resolution_z = int(math.sqrt(MAX_POINTS / aspect))
+    resolution_x = int(resolution_z * aspect)
+    resolution_z = max(10, resolution_z)
+    resolution_x = max(10, resolution_x)
     
     if is_curved:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
@@ -448,26 +455,25 @@ with tab3d:
         y = (curve_radius * np.sin(theta)) + curve_radius
         y = y - (phys_d / 2) 
         
-        # Calculate Rear Surface (Solid Blue)
+        # Rear Surface
         x_rear = (curve_radius + 50) * np.cos(theta)
         y_rear = ((curve_radius + 50) * np.sin(theta)) + curve_radius - (phys_d / 2)
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
         x_rear = x
-        y_rear = y + 50 # 50mm thick
+        y_rear = y + 50
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
     
-    # Rear Mesh
     Xr, Zr = np.meshgrid(x_rear, z)
     Yr = np.tile(y_rear, (resolution_z, 1))
 
     fig3d = go.Figure()
 
-    # 1. Front Face (Content or Color)
+    # 1. Front Face (Content)
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
@@ -475,34 +481,32 @@ with tab3d:
             
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
-            img_arr = np.fliplr(img_arr) # Fix for Inner Face mirroring
+            img_arr = np.fliplr(img_arr) 
             
-            # flatten for Scatter3d
             x_flat = X.flatten()
             y_flat = Y.flatten()
             z_flat = Z.flatten()
             
             color_flat = [f'rgb({r},{g},{b})' for r,g,b in img_arr.reshape(-1, 3)]
             
-            # Using Scatter3d (Pixels) instead of Surface (Mesh) guarantees no "Red Block" shader error
             fig3d.add_trace(go.Scatter3d(
                 x=x_flat, y=y_flat, z=z_flat,
                 mode='markers',
-                marker=dict(size=4, color=color_flat, symbol='square'),
+                marker=dict(size=3, color=color_flat, symbol='square'),
                 name='LED Pixels'
             ))
-        except:
+        except Exception as e:
+            st.sidebar.error(f"3D Render Error: {e}")
             c_hex = spec["Color"]
             fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
     else:
         c_hex = spec["Color"]
         fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
 
-    # 2. Rear Face (Solid Blue)
-    # Using Surface for the back is fine as it's solid color
+    # 2. Rear Face
     fig3d.add_trace(go.Surface(x=Xr, y=Yr, z=Zr, colorscale=[[0, '#4a90e2'], [1, '#4a90e2']], showscale=False, opacity=1.0, name='Back'))
 
-    # 3. Stick Figure
+    # 3. Viewer
     if is_curved:
         person_y_pos = curve_radius - (phys_d / 2)
     else:
