@@ -18,7 +18,7 @@ def load_data():
     """
     csv_file = "bendac_database.csv"
     
-    # BACKUP DATA - Updated MaxFPS to match new rules (Only AccuVision > 60Hz)
+    # BACKUP DATA
     backup_data = {
         'Product Name': [
             'Bendac AccuVision', 'Bendac AccuVision', 
@@ -45,12 +45,11 @@ def load_data():
     if os.path.exists(csv_file):
         try:
             df = pd.read_csv(csv_file)
-            # Ensure new columns exist, else fill with defaults
             if 'Weight(kg)' not in df.columns:
                 df['Weight(kg)'] = 10.0
             if 'MaxFPS(Hz)' not in df.columns:
                 df['MaxFPS(Hz)'] = 60
-                
+            
             required_cols = ['Product Name', 'Width(mm)', 'Height(mm)', 'Pitch(mm)', 'ResW(px)', 'ResH(px)', 'Power(W)', 'Color']
             if all(col in df.columns for col in required_cols):
                 return df
@@ -61,13 +60,40 @@ def load_data():
     
     return pd.DataFrame(backup_data)
 
-# NOVOSTAR PROCESSOR DB
+# --- PROCESSOR DATABASE ---
+# type: "fixed" or "modular"
+# capacity_60: Max pixels per unit (fixed) or per chassis (modular) @ 60Hz
+# card_capacity_60: For modular units, capacity of the preferred 40G card
+# slots: Number of output slots for modular units
 NOVASTAR_DB = {
-    "Novastar VX1000 (All-in-One)": {"capacity_60": 6500000, "max_w": 10240, "max_h": 8192},
-    "Novastar MCTRL4K": {"capacity_60": 8800000, "max_w": 7680, "max_h": 7680},
-    "Novastar H-Series (4K Card)": {"capacity_60": 10400000, "max_w": 10240, "max_h": 10240},
-    "Novastar H-Series (2K Card)": {"capacity_60": 6500000, "max_w": 4096, "max_h": 4096},
-    "Novastar MX40 Pro": {"capacity_60": 8800000, "max_w": 16384, "max_h": 16384},
+    "Novastar MCTRL660 Pro": {
+        "type": "fixed", 
+        "capacity_60": 2300000 
+    },
+    "Novastar VX1000": {
+        "type": "fixed", 
+        "capacity_60": 6500000 
+    },
+    "Novastar MCTRL4K": {
+        "type": "fixed", 
+        "capacity_60": 8800000 
+    },
+    "Novastar MX40 Pro": {
+        "type": "fixed", 
+        "capacity_60": 8800000 
+    },
+    "Novastar MX2000 Pro (40G Cards)": {
+        "type": "modular", 
+        "capacity_60": 35380000, # Chassis limit
+        "card_capacity_60": 26200000, # Approx 40G capacity
+        "slots": 2
+    },
+    "Novastar MX6000 Pro (40G Cards)": {
+        "type": "modular", 
+        "capacity_60": 141000000, # Chassis limit
+        "card_capacity_60": 26200000, # Approx 40G capacity
+        "slots": 8
+    }
 }
 
 # Initialize Session State
@@ -85,12 +111,10 @@ with st.sidebar:
     
     st.caption("VISUALIZER TOOL")
     
-    # --- UNITS TOGGLE ---
     use_imperial = st.checkbox("Show Imperial Units (ft/lbs)", value=False)
     
     st.header("1. Configuration")
     
-    # Product Selection
     unique_products = list(df["Product Name"].unique())
     default_prod_index = 0
     if "Bendac Krystl Max" in unique_products:
@@ -98,23 +122,18 @@ with st.sidebar:
         
     selected_prod = st.selectbox("Product Series", unique_products, index=default_prod_index)
     
-    # Filter for Pitches
     prod_rows = df[df["Product Name"] == selected_prod]
     available_pitches = sorted(prod_rows["Pitch(mm)"].unique())
     
-    # Pitch Selection
     default_pitch_index = 0
     if 1.9 in available_pitches:
         default_pitch_index = available_pitches.index(1.9)
         
     selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches, index=default_pitch_index)
-    
-    # Get Data
     spec = prod_rows[prod_rows["Pitch(mm)"] == selected_pitch].iloc[0]
     
     st.divider()
     
-    # Dimensions
     col1, col2 = st.columns(2)
     with col1:
         panels_w = st.number_input("Panels Wide", min_value=1, value=1)
@@ -123,12 +142,10 @@ with st.sidebar:
         
     st.divider()
     
-    # Curve Logic
     st.subheader("2. Curve Geometry")
     curve_radius = st.number_input("Radius (mm)", min_value=0.0, value=0.0, step=100.0)
     curve_angle = st.number_input("Total Angle (deg)", min_value=0.0, value=0.0, step=1.0)
     
-    # Auto-Calc Logic
     is_curved = False
     calc_note = ""
     
@@ -139,13 +156,11 @@ with st.sidebar:
         if panels_needed < 1: panels_needed = 1
         panels_w = panels_needed 
         calc_note = f"Auto-Adjusted Width to **{panels_needed} panels** based on Radius/Angle."
-
     elif curve_radius > 0:
         is_curved = True
         arc_len = panels_w * spec["Width(mm)"]
         rad_angle = arc_len / curve_radius
         curve_angle = math.degrees(rad_angle)
-        
     elif curve_angle > 0:
         is_curved = True
         arc_len = panels_w * spec["Width(mm)"]
@@ -155,24 +170,17 @@ with st.sidebar:
     if calc_note:
         st.info(calc_note)
 
-    # --- PROCESSOR LOGIC ---
     st.subheader("3. Processing (Novastar)")
     proc_model = st.selectbox("Processor Model", list(NOVASTAR_DB.keys()))
     
     # Frame Rate Logic
-    # Rule: Only "Bendac AccuVision" allows > 60Hz
     if "AccuVision" in selected_prod:
-        # High Frame Rate Options
         fps_options = [60, 120, 240]
     else:
-        # Locked to 60Hz
         fps_options = [60]
-        
     target_fps = st.selectbox("Target Frame Rate (Hz)", fps_options)
     
-    # --- VISUALS ---
     st.subheader("4. Visual Context")
-    bg_file = st.file_uploader("Upload Background (Venue)", type=["png", "jpg", "jpeg"])
     content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
 
     # --- CALCULATIONS ---
@@ -185,23 +193,44 @@ with st.sidebar:
     total_power_w = panels_w * panels_h * spec["Power(W)"]
     total_weight_kg = panels_w * panels_h * spec["Weight(kg)"]
     
-    # Advanced Engineering Calcs
     btu_hr = total_power_w * 3.412142
-    view_dist_m = selected_pitch * 1.0 # Rough rule of thumb: 1m per 1mm pitch
     aspect_ratio = total_w_mm / total_h_mm
     
-    # Processor Calcs
-    # 1G Port Capacity rule of thumb: 655,360 pixels @ 60Hz 8-bit
-    # Capacity scales inversely with Hz: Cap_New = Cap_60 * (60 / New_Hz)
+    # --- PROCESSOR CALCULATIONS ---
     fps_scale = 60 / target_fps
     
-    port_capacity_60 = 655360
+    # 1G Port Calculation (Standard reference)
+    port_capacity_60 = 650000 
     port_capacity_real = port_capacity_60 * fps_scale
     total_ports_needed = math.ceil(total_pixels / port_capacity_real)
     
-    proc_cap_60 = NOVASTAR_DB[proc_model]["capacity_60"]
-    proc_cap_real = proc_cap_60 * fps_scale
-    total_procs_needed = math.ceil(total_pixels / proc_cap_real)
+    # Processor Unit Calculation
+    proc_data = NOVASTAR_DB[proc_model]
+    
+    if proc_data["type"] == "fixed":
+        # Fixed unit logic (e.g. 660 Pro, VX1000)
+        unit_cap_real = proc_data["capacity_60"] * fps_scale
+        total_procs_needed = math.ceil(total_pixels / unit_cap_real)
+        proc_str = f"{total_procs_needed}x {proc_model}"
+        
+    else:
+        # Modular unit logic (MX2000/6000)
+        # 1. How many cards needed?
+        card_cap_real = proc_data["card_capacity_60"] * fps_scale
+        total_cards_needed = math.ceil(total_pixels / card_cap_real)
+        
+        # 2. How many chassis needed based on slots?
+        slots_per_chassis = proc_data["slots"]
+        chassis_by_slots = math.ceil(total_cards_needed / slots_per_chassis)
+        
+        # 3. How many chassis needed based on total bandwidth limit?
+        chassis_cap_real = proc_data["capacity_60"] * fps_scale
+        chassis_by_cap = math.ceil(total_pixels / chassis_cap_real)
+        
+        # Final Chassis Count is the max of both constraints
+        total_chassis_needed = max(chassis_by_slots, chassis_by_cap)
+        
+        proc_str = f"{total_chassis_needed}x {proc_model.split('(')[0]} ({total_cards_needed}x 40G Cards)"
 
     if is_curved and curve_radius > 0:
         rad_angle = math.radians(curve_angle)
@@ -215,7 +244,6 @@ with st.sidebar:
     def create_pdf_figure():
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
         
-        # 1. HEADER
         if os.path.exists("logo.png"):
             ax_logo = pdf_fig.add_axes([0.35, 0.89, 0.3, 0.08]) 
             img_logo = mpimg.imread("logo.png")
@@ -224,7 +252,6 @@ with st.sidebar:
         
         pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # 2. DATA TABLE
         ax_table = pdf_fig.add_axes([0.1, 0.60, 0.8, 0.20])
         ax_table.axis('off')
         
@@ -242,8 +269,8 @@ with st.sidebar:
             ["Resolution", f"{total_res_w} px (W) x {total_res_h} px (H) @ {target_fps}Hz"],
             ["Max Power / Heat", f"{total_power_w/1000:.1f} kW  /  {btu_hr:,.0f} BTU/hr"],
             ["Total Weight", weight_str],
-            ["Processing", f"{total_procs_needed}x {proc_model}"],
-            ["Data Capacity", f"{total_ports_needed}x 1G Ports required"],
+            ["Processing", proc_str],
+            ["Data Capacity", f"{total_ports_needed}x 1G Ports required (Ref)"],
         ]
         
         if is_curved:
@@ -258,7 +285,6 @@ with st.sidebar:
             if j == 0: cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
-        # 3. FRONT VIEW
         ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.23])
         ax_front.set_title("FRONT VIEW")
         ax_front.set_aspect('equal')
@@ -273,7 +299,6 @@ with st.sidebar:
                 ax_front.imshow(img_c, extent=[0, total_w_mm, 0, total_h_mm], zorder=5)
             except: pass
 
-        # Grid
         if panels_w <= 1000:
             for c in range(int(panels_w) + 1):
                 x = c * spec["Width(mm)"]
@@ -282,7 +307,6 @@ with st.sidebar:
                 y = r * spec["Height(mm)"]
                 ax_front.plot([0, total_w_mm], [y, y], color='black', linewidth=0.1, alpha=0.5, zorder=6)
 
-        # Person
         pdf_px = total_w_mm + 500
         if os.path.exists("person.png"):
             img = mpimg.imread("person.png")
@@ -293,7 +317,6 @@ with st.sidebar:
         
         ax_front.autoscale_view()
         
-        # 4. TOP VIEW
         ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.25])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
@@ -334,13 +357,11 @@ with st.sidebar:
 
         ax_top.autoscale_view()
         
-        # Save to buffer
         buf = io.BytesIO()
         plt.savefig(buf, format="pdf", bbox_inches='tight')
         buf.seek(0)
         return buf
 
-    # --- SIDEBAR DOWNLOAD BUTTON ---
     st.divider()
     pdf_buffer = create_pdf_figure()
     st.download_button(
@@ -351,26 +372,20 @@ with st.sidebar:
         use_container_width=True
     )
 
-
 # --- 4. MAIN DISPLAY ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
 # -- TOP METRICS --
 m1, m2, m3, m4 = st.columns(4)
 
-# Format Dimensions
 dim_val = f"{total_w_mm:,.0f} x {total_h_mm:,.0f} mm"
 if use_imperial:
     dim_val += f"\n({total_w_mm/304.8:,.1f}' x {total_h_mm/304.8:,.1f}')"
 m1.metric("Dimensions", dim_val)
 
-# Resolution
 m2.metric("Resolution", f"{total_res_w} x {total_res_h} px")
-
-# Power / Heat
 m3.metric("Max Power", f"{total_power_w/1000:.1f} kW")
 
-# Weight
 w_val = f"{total_weight_kg:,.0f} kg"
 if use_imperial:
     w_val += f" ({total_weight_kg*2.20462:,.0f} lbs)"
@@ -379,7 +394,7 @@ m4.metric("Total Weight", w_val)
 # -- SECONDARY METRICS (Engineering) --
 e1, e2, e3, e4 = st.columns(4)
 e1.metric("Aspect Ratio", f"{aspect_ratio:.2f} : 1")
-e2.metric("Processors", f"{total_procs_needed}x {proc_model.split(' ')[1]}")
+e2.metric("Processors", proc_str)
 e3.metric("Data Ports", f"{total_ports_needed}x (1G)")
 e4.metric("Heat Output", f"{btu_hr:,.0f} BTU/hr")
 
@@ -389,10 +404,6 @@ if is_curved:
 # --- 5. PLOTTING ---
 plot_col1, plot_col2 = st.columns(2)
 
-# Common Settings
-person_h = 1750
-panel_color = spec["Color"]
-
 # --- FRONT VIEW (AX1) ---
 with plot_col1:
     fig1, ax1 = plt.subplots(figsize=(6, 5)) 
@@ -400,23 +411,13 @@ with plot_col1:
     ax1.set_aspect('equal')
     ax1.axis('off')
 
-    # Draw Background Image if uploaded
-    if bg_file:
-        img_bg = mpimg.imread(bg_file)
-        bg_w = max(total_w_mm * 1.5, 5000)
-        bg_h = bg_w * (img_bg.shape[0] / img_bg.shape[1])
-        ax1.imshow(img_bg, extent=[-bg_w/4, total_w_mm + bg_w/4, -bg_h/3, bg_h*0.66], zorder=0, alpha=0.5)
-
-    # Draw Screen
     rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=panel_color, zorder=1)
     ax1.add_patch(rect)
     
-    # Content Image Mapping
     if content_file:
         img_c = mpimg.imread(content_file)
         ax1.imshow(img_c, extent=[0, total_w_mm, 0, total_h_mm], zorder=2)
 
-    # Draw Grid Lines
     for c in range(int(panels_w) + 1):
         x = c * spec["Width(mm)"]
         ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5, zorder=3)
@@ -424,7 +425,6 @@ with plot_col1:
         y = r * spec["Height(mm)"]
         ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5, zorder=3)
 
-    # Draw Person (IMAGE)
     p_x = total_w_mm + 500 
     if os.path.exists("person.png"):
         try:
@@ -511,7 +511,9 @@ with st.expander("Show Text Summary (Copy/Paste)"):
     RESOLUTION: {total_res_w} x {total_res_h} @ {target_fps}Hz
     POWER: {total_power_w/1000:.2f} kW
     WEIGHT: {total_weight_kg:.0f} kg
-    PROCESSORS: {total_procs_needed}x {proc_model}
+    HEAT: {btu_hr:.0f} BTU/hr
+    PROCESSORS: {proc_str}
     DATA PORTS: {total_ports_needed}x 1G
     """
     st.code(summary_txt, language="text")
+    
