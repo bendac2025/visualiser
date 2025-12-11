@@ -254,6 +254,10 @@ with st.sidebar:
 
     # --- PDF GENERATION FUNCTION ---
     def create_pdf_figure():
+        # *** FIX START ***
+        panel_thick = 100 # Defined locally for PDF scope
+        # *** FIX END ***
+        
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
         
         if os.path.exists("logo.png"):
@@ -297,18 +301,12 @@ with st.sidebar:
         the_table.set_fontsize(9)
         the_table.scale(1, 1.6)
         
-        # --- ROW HEIGHT ADJUSTMENT LOGIC ---
-        # Iterate through cells to find multi-line text and increase height
+        # Row Height Logic
         for row_idx, row_data in enumerate(table_data):
-            content_cell = row_data[1] # The value column
+            content_cell = row_data[1] 
             if "\n" in content_cell:
-                # Calculate new height (1.8x default)
-                # Note: Table indices include (row, col)
-                # row indices match enumerate if no header
                 current_height = the_table[row_idx, 0].get_height()
                 new_height = current_height * 1.8
-                
-                # Apply to both columns in this row
                 the_table[row_idx, 0].set_height(new_height)
                 the_table[row_idx, 1].set_height(new_height)
 
