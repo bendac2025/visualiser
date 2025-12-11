@@ -6,6 +6,7 @@ import matplotlib.patches as patches
 import matplotlib.image as mpimg
 import os
 import io
+import numpy as np
 
 # --- 1. CONFIG & DATABASE ---
 st.set_page_config(page_title="Bendac Visualizer", layout="wide")
@@ -17,7 +18,7 @@ def load_data():
     """
     csv_file = "bendac_database.csv"
     
-    # BACKUP DATA
+    # BACKUP DATA - Updated MaxFPS to match new rules (Only AccuVision > 60Hz)
     backup_data = {
         'Product Name': [
             'Bendac AccuVision', 'Bendac AccuVision', 
@@ -31,6 +32,8 @@ def load_data():
         'ResW(px)': [360, 270, 512, 384, 256, 144, 120, 96, 640, 480, 384],
         'ResH(px)': [640, 480, 256, 192, 128, 144, 120, 96, 360, 270, 216],
         'Power(W)': [100.0, 100.0, 300.0, 300.0, 300.0, 450.0, 520.0, 520.0, 121.5, 121.5, 121.5],
+        'Weight(kg)': [7.5, 7.5, 12.5, 12.5, 12.0, 28.0, 28.0, 28.0, 6.5, 6.5, 6.5],
+        'MaxFPS(Hz)': [240, 240, 60, 60, 60, 60, 60, 60, 60, 60, 60],
         'Color': [
             '#4a90e2', '#4a90e2', 
             '#50e3c2', '#50e3c2', '#50e3c2', 
@@ -42,7 +45,13 @@ def load_data():
     if os.path.exists(csv_file):
         try:
             df = pd.read_csv(csv_file)
-            required_cols = list(backup_data.keys())
+            # Ensure new columns exist, else fill with defaults
+            if 'Weight(kg)' not in df.columns:
+                df['Weight(kg)'] = 10.0
+            if 'MaxFPS(Hz)' not in df.columns:
+                df['MaxFPS(Hz)'] = 60
+                
+            required_cols = ['Product Name', 'Width(mm)', 'Height(mm)', 'Pitch(mm)', 'ResW(px)', 'ResH(px)', 'Power(W)', 'Color']
             if all(col in df.columns for col in required_cols):
                 return df
             else:
@@ -51,6 +60,15 @@ def load_data():
             st.error(f"Error reading CSV: {e}. Using backup data.")
     
     return pd.DataFrame(backup_data)
+
+# NOVOSTAR PROCESSOR DB
+NOVASTAR_DB = {
+    "Novastar VX1000 (All-in-One)": {"capacity_60": 6500000, "max_w": 10240, "max_h": 8192},
+    "Novastar MCTRL4K": {"capacity_60": 8800000, "max_w": 7680, "max_h": 7680},
+    "Novastar H-Series (4K Card)": {"capacity_60": 10400000, "max_w": 10240, "max_h": 10240},
+    "Novastar H-Series (2K Card)": {"capacity_60": 6500000, "max_w": 4096, "max_h": 4096},
+    "Novastar MX40 Pro": {"capacity_60": 8800000, "max_w": 16384, "max_h": 16384},
+}
 
 # Initialize Session State
 if 'db' not in st.session_state:
@@ -66,9 +84,13 @@ with st.sidebar:
         st.title("BENDAC")
     
     st.caption("VISUALIZER TOOL")
-    st.header("Configuration")
     
-    # Product Selection (Default: Bendac Krystl Max)
+    # --- UNITS TOGGLE ---
+    use_imperial = st.checkbox("Show Imperial Units (ft/lbs)", value=False)
+    
+    st.header("1. Configuration")
+    
+    # Product Selection
     unique_products = list(df["Product Name"].unique())
     default_prod_index = 0
     if "Bendac Krystl Max" in unique_products:
@@ -80,7 +102,7 @@ with st.sidebar:
     prod_rows = df[df["Product Name"] == selected_prod]
     available_pitches = sorted(prod_rows["Pitch(mm)"].unique())
     
-    # Pitch Selection (Default: 1.9 if available)
+    # Pitch Selection
     default_pitch_index = 0
     if 1.9 in available_pitches:
         default_pitch_index = available_pitches.index(1.9)
@@ -92,7 +114,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Dimensions (Default: 1 Wide, 1 High)
+    # Dimensions
     col1, col2 = st.columns(2)
     with col1:
         panels_w = st.number_input("Panels Wide", min_value=1, value=1)
@@ -102,7 +124,7 @@ with st.sidebar:
     st.divider()
     
     # Curve Logic
-    st.subheader("Curve Geometry")
+    st.subheader("2. Curve Geometry")
     curve_radius = st.number_input("Radius (mm)", min_value=0.0, value=0.0, step=100.0)
     curve_angle = st.number_input("Total Angle (deg)", min_value=0.0, value=0.0, step=1.0)
     
@@ -133,12 +155,53 @@ with st.sidebar:
     if calc_note:
         st.info(calc_note)
 
+    # --- PROCESSOR LOGIC ---
+    st.subheader("3. Processing (Novastar)")
+    proc_model = st.selectbox("Processor Model", list(NOVASTAR_DB.keys()))
+    
+    # Frame Rate Logic
+    # Rule: Only "Bendac AccuVision" allows > 60Hz
+    if "AccuVision" in selected_prod:
+        # High Frame Rate Options
+        fps_options = [60, 120, 240]
+    else:
+        # Locked to 60Hz
+        fps_options = [60]
+        
+    target_fps = st.selectbox("Target Frame Rate (Hz)", fps_options)
+    
+    # --- VISUALS ---
+    st.subheader("4. Visual Context")
+    bg_file = st.file_uploader("Upload Background (Venue)", type=["png", "jpg", "jpeg"])
+    content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
+
     # --- CALCULATIONS ---
     total_w_mm = panels_w * spec["Width(mm)"]
     total_h_mm = panels_h * spec["Height(mm)"]
     total_res_w = panels_w * spec["ResW(px)"]
     total_res_h = panels_h * spec["ResH(px)"]
-    total_power = (panels_w * panels_h * spec["Power(W)"]) / 1000
+    total_pixels = total_res_w * total_res_h
+    
+    total_power_w = panels_w * panels_h * spec["Power(W)"]
+    total_weight_kg = panels_w * panels_h * spec["Weight(kg)"]
+    
+    # Advanced Engineering Calcs
+    btu_hr = total_power_w * 3.412142
+    view_dist_m = selected_pitch * 1.0 # Rough rule of thumb: 1m per 1mm pitch
+    aspect_ratio = total_w_mm / total_h_mm
+    
+    # Processor Calcs
+    # 1G Port Capacity rule of thumb: 655,360 pixels @ 60Hz 8-bit
+    # Capacity scales inversely with Hz: Cap_New = Cap_60 * (60 / New_Hz)
+    fps_scale = 60 / target_fps
+    
+    port_capacity_60 = 655360
+    port_capacity_real = port_capacity_60 * fps_scale
+    total_ports_needed = math.ceil(total_pixels / port_capacity_real)
+    
+    proc_cap_60 = NOVASTAR_DB[proc_model]["capacity_60"]
+    proc_cap_real = proc_cap_60 * fps_scale
+    total_procs_needed = math.ceil(total_pixels / proc_cap_real)
 
     if is_curved and curve_radius > 0:
         rad_angle = math.radians(curve_angle)
@@ -150,83 +213,89 @@ with st.sidebar:
 
     # --- PDF GENERATION FUNCTION ---
     def create_pdf_figure():
-        # Create A4 Size Figure
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
         
-        # 1. HEADER (Logo & Title) - Top 15%
+        # 1. HEADER
         if os.path.exists("logo.png"):
-            # Logo Centered
             ax_logo = pdf_fig.add_axes([0.35, 0.89, 0.3, 0.08]) 
             img_logo = mpimg.imread("logo.png")
             ax_logo.imshow(img_logo)
             ax_logo.axis('off')
         
-        # Title Text - Positioned at 0.85 (Clearance from Logo)
         pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # 2. DATA TABLE - Shifted DOWN to 0.66 (Top edge ~0.81) to create gap
-        ax_table = pdf_fig.add_axes([0.1, 0.66, 0.8, 0.15])
+        # 2. DATA TABLE
+        ax_table = pdf_fig.add_axes([0.1, 0.60, 0.8, 0.20])
         ax_table.axis('off')
         
+        dim_str = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
+        weight_str = f"{total_weight_kg:,.0f} kg"
+        if use_imperial:
+            dim_str += f"\n{total_w_mm/304.8:,.1f} ft (W) x {total_h_mm/304.8:,.1f} ft (H)"
+            weight_str += f" ({total_weight_kg*2.20462:,.0f} lbs)"
+
         table_data = [
             ["Model Series", f"{selected_prod}"],
             ["Pixel Pitch", f"{selected_pitch} mm"],
             ["Configuration", f"{panels_w} (W) x {panels_h} (H) Panels"],
-            ["Total Dimensions", f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"],
-            ["Total Resolution", f"{total_res_w} px (W) x {total_res_h} px (H)"],
-            ["Max Power", f"{total_power:.2f} kW"],
+            ["Dimensions", dim_str],
+            ["Resolution", f"{total_res_w} px (W) x {total_res_h} px (H) @ {target_fps}Hz"],
+            ["Max Power / Heat", f"{total_power_w/1000:.1f} kW  /  {btu_hr:,.0f} BTU/hr"],
+            ["Total Weight", weight_str],
+            ["Processing", f"{total_procs_needed}x {proc_model}"],
+            ["Data Capacity", f"{total_ports_needed}x 1G Ports required"],
         ]
         
         if is_curved:
-            table_data.append(["Curve Radius", f"{curve_radius:,.0f} mm"])
-            table_data.append(["Curve Angle", f"{curve_angle:.1f}°"])
-            table_data.append(["Physical Footprint", f"{phys_w:,.0f} mm (W) x {phys_d:,.0f} mm (D)"])
-        else:
-            table_data.append(["Geometry", "Flat Wall"])
-
-        # Create Table
+            table_data.append(["Curve", f"R: {curve_radius:,.0f}mm | {curve_angle:.1f}°"])
+        
         the_table = ax_table.table(cellText=table_data, loc='center', cellLoc='left', colWidths=[0.3, 0.7])
         the_table.auto_set_font_size(False)
-        the_table.set_fontsize(10)
-        the_table.scale(1, 1.5)
+        the_table.set_fontsize(9)
+        the_table.scale(1, 1.6)
         
         for (i, j), cell in the_table.get_celld().items():
-            if j == 0:
-                cell.set_text_props(weight='bold')
+            if j == 0: cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
-        # 3. FRONT VIEW - Middle
-        ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.30])
-        ax_front.set_title("FRONT VIEW (Unfolded)")
+        # 3. FRONT VIEW
+        ax_front = pdf_fig.add_axes([0.1, 0.35, 0.8, 0.23])
+        ax_front.set_title("FRONT VIEW")
         ax_front.set_aspect('equal')
         ax_front.axis('off')
         
         rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=spec["Color"])
         ax_front.add_patch(rect)
         
+        if content_file:
+            try:
+                img_c = mpimg.imread(content_file)
+                ax_front.imshow(img_c, extent=[0, total_w_mm, 0, total_h_mm], zorder=5)
+            except: pass
+
         # Grid
         if panels_w <= 1000:
             for c in range(int(panels_w) + 1):
                 x = c * spec["Width(mm)"]
-                ax_front.plot([x, x], [0, total_h_mm], color='black', linewidth=0.1, alpha=0.5)
+                ax_front.plot([x, x], [0, total_h_mm], color='black', linewidth=0.1, alpha=0.5, zorder=6)
             for r in range(int(panels_h) + 1):
                 y = r * spec["Height(mm)"]
-                ax_front.plot([0, total_w_mm], [y, y], color='black', linewidth=0.1, alpha=0.5)
+                ax_front.plot([0, total_w_mm], [y, y], color='black', linewidth=0.1, alpha=0.5, zorder=6)
 
-        # Person Image
+        # Person
         pdf_px = total_w_mm + 500
         if os.path.exists("person.png"):
             img = mpimg.imread("person.png")
             aspect_ratio = img.shape[1] / img.shape[0]
-            ax_front.imshow(img, extent=[pdf_px, pdf_px + (1750*aspect_ratio), 0, 1750])
+            ax_front.imshow(img, extent=[pdf_px, pdf_px + (1750*aspect_ratio), 0, 1750], zorder=10)
         else:
              ax_front.add_patch(patches.Rectangle((pdf_px, 0), 600, 1750, color="#ccc"))
         
         ax_front.autoscale_view()
         
-        # 4. TOP VIEW - Bottom
-        ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.28])
-        ax_top.set_title("TOP VIEW (Plan)")
+        # 4. TOP VIEW
+        ax_top = pdf_fig.add_axes([0.1, 0.05, 0.8, 0.25])
+        ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
         
@@ -254,7 +323,6 @@ with st.sidebar:
                 current_a += math.radians(angle_step)
             pdf_py = min(curve_radius, phys_d + 3000)
 
-        # Top Person
         if os.path.exists("top_person.png"):
             img_top = mpimg.imread("top_person.png")
             t_aspect = img_top.shape[1] / img_top.shape[0]
@@ -287,12 +355,33 @@ with st.sidebar:
 # --- 4. MAIN DISPLAY ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
-# Stats Metrics
+# -- TOP METRICS --
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Dimensions", f"{total_w_mm:,.0f} x {total_h_mm:,.0f} mm")
+
+# Format Dimensions
+dim_val = f"{total_w_mm:,.0f} x {total_h_mm:,.0f} mm"
+if use_imperial:
+    dim_val += f"\n({total_w_mm/304.8:,.1f}' x {total_h_mm/304.8:,.1f}')"
+m1.metric("Dimensions", dim_val)
+
+# Resolution
 m2.metric("Resolution", f"{total_res_w} x {total_res_h} px")
-m3.metric("Max Power", f"{total_power:.2f} kW")
-m4.metric("Panel Count", f"{panels_w * panels_h}")
+
+# Power / Heat
+m3.metric("Max Power", f"{total_power_w/1000:.1f} kW")
+
+# Weight
+w_val = f"{total_weight_kg:,.0f} kg"
+if use_imperial:
+    w_val += f" ({total_weight_kg*2.20462:,.0f} lbs)"
+m4.metric("Total Weight", w_val)
+
+# -- SECONDARY METRICS (Engineering) --
+e1, e2, e3, e4 = st.columns(4)
+e1.metric("Aspect Ratio", f"{aspect_ratio:.2f} : 1")
+e2.metric("Processors", f"{total_procs_needed}x {proc_model.split(' ')[1]}")
+e3.metric("Data Ports", f"{total_ports_needed}x (1G)")
+e4.metric("Heat Output", f"{btu_hr:,.0f} BTU/hr")
 
 if is_curved:
     st.caption(f"**Curve Stats:** Radius: {curve_radius:,.0f}mm | Angle: {curve_angle:.1f}° | Footprint: {phys_w:,.0f}mm (W) x {phys_d:,.0f}mm (D)")
@@ -311,17 +400,29 @@ with plot_col1:
     ax1.set_aspect('equal')
     ax1.axis('off')
 
+    # Draw Background Image if uploaded
+    if bg_file:
+        img_bg = mpimg.imread(bg_file)
+        bg_w = max(total_w_mm * 1.5, 5000)
+        bg_h = bg_w * (img_bg.shape[0] / img_bg.shape[1])
+        ax1.imshow(img_bg, extent=[-bg_w/4, total_w_mm + bg_w/4, -bg_h/3, bg_h*0.66], zorder=0, alpha=0.5)
+
     # Draw Screen
-    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=panel_color)
+    rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='white', facecolor=panel_color, zorder=1)
     ax1.add_patch(rect)
+    
+    # Content Image Mapping
+    if content_file:
+        img_c = mpimg.imread(content_file)
+        ax1.imshow(img_c, extent=[0, total_w_mm, 0, total_h_mm], zorder=2)
 
     # Draw Grid Lines
     for c in range(int(panels_w) + 1):
         x = c * spec["Width(mm)"]
-        ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5)
+        ax1.plot([x, x], [0, total_h_mm], color='white', linewidth=0.5, zorder=3)
     for r in range(int(panels_h) + 1):
         y = r * spec["Height(mm)"]
-        ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5)
+        ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5, zorder=3)
 
     # Draw Person (IMAGE)
     p_x = total_w_mm + 500 
@@ -333,8 +434,7 @@ with plot_col1:
             target_h = person_h
             target_w = target_h * aspect_ratio
             ax1.imshow(img, extent=[p_x, p_x + target_w, 0, target_h], zorder=10)
-        except Exception as e:
-            st.error(f"Error loading person.png: {e}")
+        except:
             ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#ccc"))
     else:
         ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#888"))
@@ -360,12 +460,9 @@ with plot_col2:
     else:
         center_x = 0
         center_y = curve_radius 
-        
         start_angle = 270 - (curve_angle / 2)
-        angle_step = curve_angle / panels_w
-        
         current_a = math.radians(start_angle)
-        
+        angle_step = curve_angle / panels_w
         for i in range(int(panels_w)):
             x1 = center_x + curve_radius * math.cos(current_a)
             y1 = center_y + curve_radius * math.sin(current_a)
@@ -376,12 +473,9 @@ with plot_col2:
             y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
             x4 = center_x + r_out * math.cos(current_a)
             y4 = center_y + r_out * math.sin(current_a)
-            
             poly = patches.Polygon([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], closed=True, edgecolor='white', facecolor=panel_color)
             ax2.add_patch(poly)
-            
             current_a += math.radians(angle_step)
-
         person_y = min(curve_radius, phys_d + 3000) 
 
     if os.path.exists("top_person.png"):
@@ -398,13 +492,26 @@ with plot_col2:
                 person_y + target_top_h / 2
             ]
             ax2.imshow(img_top, extent=extent)
-        except Exception as e:
-            st.error(f"Error loading top_person.png: {e}")
+        except:
             ax2.add_patch(patches.Circle((0, person_y), 200, color='#333'))
     else:
         ax2.add_patch(patches.Circle((0, person_y), 200, color='#333'))
 
     ax2.autoscale_view()
     ax2.margins(0.1)
-
     st.pyplot(fig2, use_container_width=True)
+
+# --- COPY DATA ---
+st.divider()
+with st.expander("Show Text Summary (Copy/Paste)"):
+    summary_txt = f"""
+    PRODUCT: {selected_prod} ({selected_pitch}mm)
+    CONFIG: {panels_w} x {panels_h}
+    DIMENSIONS: {total_w_mm}mm x {total_h_mm}mm
+    RESOLUTION: {total_res_w} x {total_res_h} @ {target_fps}Hz
+    POWER: {total_power_w/1000:.2f} kW
+    WEIGHT: {total_weight_kg:.0f} kg
+    PROCESSORS: {total_procs_needed}x {proc_model}
+    DATA PORTS: {total_ports_needed}x 1G
+    """
+    st.code(summary_txt, language="text")
