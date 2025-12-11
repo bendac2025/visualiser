@@ -202,8 +202,7 @@ with st.sidebar:
         
         fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # Moved table down to 0.55 to avoid header overlap
-        ax_t = fig.add_axes([0.1, 0.55, 0.8, 0.20])
+        ax_t = fig.add_axes([0.1, 0.58, 0.8, 0.20])
         ax_t.axis('off')
         
         d_s = f"{total_w_mm:,.0f} mm (W) x {total_h_mm:,.0f} mm (H)"
@@ -244,7 +243,7 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        ax_f = fig.add_axes([0.1, 0.28, 0.8, 0.22])
+        ax_f = fig.add_axes([0.1, 0.30, 0.8, 0.23])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
         ax_f.axis('off')
@@ -270,7 +269,7 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.20])
+        ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
         ax_top.axis('off')
@@ -421,7 +420,7 @@ with tab3d:
         theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
-        y = y - (phys_d / 2) 
+        y = y - (phys_d / 2) # Center depth
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
@@ -430,24 +429,23 @@ with tab3d:
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
 
-    # --- TEXTURE MAPPING FIX ---
     if content_img_data is not None:
         try:
-            # Force RGB
             pil_img = Image.fromarray(content_img_data).convert("RGB")
             pil_img = pil_img.resize((resolution_x, resolution_z))
-            img_arr = np.array(pil_img)
+            img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
             
-            # Create list of lists for Plotly color
+            # Use Python list of strings for color
             surface_color = [
-                [f'rgb({img_arr[r, c, 0]}, {img_arr[r, c, 1]}, {img_arr[r, c, 2]})' 
+                [f'rgb({img_arr[r, c, 0]},{img_arr[r, c, 1]},{img_arr[r, c, 2]})' 
                  for c in range(resolution_x)] 
                 for r in range(resolution_z)
             ]
             
-            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False)
-        except Exception as e:
+            surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False, 
+                              lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0, roughness=1.0, fresnel=0.0))
+        except:
             c_hex = spec["Color"]
             surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
     else:
@@ -456,11 +454,9 @@ with tab3d:
 
     fig3d = go.Figure(data=[surf])
     
-    # 3D Stick Figure at focal point Y=Radius
-    if is_curved:
-        person_y_pos = curve_radius - (phys_d / 2)
-    else:
-        person_y_pos = 2000
+    # 3D Stick Figure at Y=Radius (Relative to Screen Center)
+    # If curved, R is distance from arc center to surface.
+    person_y_pos = curve_radius if is_curved else 2000
 
     fig3d.add_trace(go.Scatter3d(
         x=[0, 0], y=[person_y_pos, person_y_pos], z=[0, 1750],
