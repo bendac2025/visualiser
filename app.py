@@ -486,4 +486,3 @@ with st.expander("Show Text Summary (Copy/Paste)"):
     if is_accuvision:
         summary_txt += f"IMAGE GENERATORS: {ig_str}\n"
     st.code(summary_txt, language="text")
-<ctrl46>}<ctrl46>
