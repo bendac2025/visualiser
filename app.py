@@ -172,45 +172,24 @@ with st.sidebar:
 
     # --- CAD DIMENSION HELPER ---
     def draw_dim_line(ax, start, end, text, offset_dist=1000, color='black'):
-        """
-        Draws a dimension line offset from the object.
-        offset_dist: How far away (in mm) the line is pushed from the start/end points.
-        """
         x1, y1 = start
         x2, y2 = end
-        
-        dx = x2 - x1
-        dy = y2 - y1
+        dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx**2 + dy**2)
         if length == 0: return
-        
-        nx = -dy / length
-        ny = dx / length
-        
-        ox1 = x1 + nx * offset_dist
-        oy1 = y1 + ny * offset_dist
-        ox2 = x2 + nx * offset_dist
-        oy2 = y2 + ny * offset_dist
+        nx, ny = -dy / length, dx / length
+        ox1, oy1 = x1 + nx * offset_dist, y1 + ny * offset_dist
+        ox2, oy2 = x2 + nx * offset_dist, y2 + ny * offset_dist
         
         ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
         ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
-        
         ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        # --- FIX: Ensure text is placed BEYOND the dimension line ---
-        # If offset_dist is negative (down/left), we subtract more.
-        # If positive (up/right), we add more.
         text_push = 400 if offset_dist >= 0 else -400
-        
-        tx = (ox1 + ox2) / 2 + nx * text_push
-        ty = (oy1 + oy2) / 2 + ny * text_push
-        
+        tx, ty = (ox1 + ox2)/2 + nx*text_push, (oy1 + oy2)/2 + ny*text_push
         angle = math.degrees(math.atan2(dy, dx))
-        if 90 < angle <= 270 or -270 < angle <= -90:
-            angle += 180
-            
-        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, 
-                bbox=dict(facecolor='white', edgecolor='none', pad=1))
+        if 90 < angle <= 270 or -270 < angle <= -90: angle += 180
+        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, bbox=dict(facecolor='white', edgecolor='none', pad=1))
 
     def create_pdf():
         panel_thick = 100
@@ -264,7 +243,6 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        # Front View
         ax_f = fig.add_axes([0.1, 0.30, 0.8, 0.23])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
@@ -291,7 +269,6 @@ with st.sidebar:
         
         ax_f.autoscale_view()
 
-        # Top View
         ax_top = fig.add_axes([0.1, 0.05, 0.8, 0.22])
         ax_top.set_title("TOP VIEW")
         ax_top.set_aspect('equal')
@@ -317,9 +294,7 @@ with st.sidebar:
             
             c_half = phys_w/2
             bottom_y = cy + curve_radius*math.sin(math.radians(270)) 
-            
             draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Chord: {phys_w:,.0f}mm", offset_dist=-1000)
-            
             py = min(curve_radius, phys_d + 3000)
 
         if os.path.exists("top_person.png"):
@@ -339,7 +314,6 @@ with st.sidebar:
     st.divider()
     st.download_button("📄 Download Spec Sheet (PDF)", create_pdf(), f"Bendac_Spec_{selected_prod}.pdf", "application/pdf")
     
-    # --- COPY DATA (SIDEBAR) ---
     st.divider()
     with st.expander("Show Text Summary"):
         t = f"""
@@ -357,7 +331,6 @@ VIDEO INPUTS: {input_str}
         if is_accuvision: t += f"IGs: {ig_str}"
         st.code(t)
 
-# --- TABS FOR 2D / 3D ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
 m1, m2, m3, m4 = st.columns(4)
@@ -440,42 +413,76 @@ with tab2d:
         st.pyplot(f2)
 
 with tab3d:
-    # 3D MODEL LOGIC
+    # 3D MODEL
+    resolution_x = 100 
+    resolution_z = 20
+    
     if is_curved:
-        theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), 50)
+        # Theta range centered at 270 (so south is "forward")
+        # To align Y+ as Inner Face, we need to shift geometry carefully.
+        # Standard polar: x=Rcos, y=Rsin. Center (0,0).
+        # At 270, sin is -1. So y = -R. This is "Front".
+        # Viewer is at (0,0). Screen is at R distance.
+        theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), resolution_x)
         x = curve_radius * np.cos(theta)
-        y = (curve_radius * np.sin(theta)) + curve_radius
+        y = curve_radius * np.sin(theta)
     else:
-        x = np.linspace(-total_w_mm/2, total_w_mm/2, 50)
-        y = np.zeros(50) 
-    
-    z = np.linspace(0, total_h_mm, 10)
+        x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
+        # Place flat screen at Y = -1000 so viewer at 0,0 is looking "forward" at it
+        y = np.full(resolution_x, -1000)
+
+    z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
-    Y = np.tile(y, (10, 1)).reshape(10, 50)
+    Y = np.tile(y, (resolution_z, 1))
+
+    # COLOR MAPPING LOGIC
+    # If image, convert to RGB strings. If not, use solid product color.
+    if content_img_data is not None:
+        # 1. Resize image to match mesh grid (resolution_x, resolution_z)
+        # Note: image array is (Height, Width, 3). Mesh is (Z, X).
+        # We need to resize img to (resolution_z, resolution_x)
+        pil_img = Image.fromarray(content_img_data)
+        pil_img = pil_img.resize((resolution_x, resolution_z))
+        
+        # 2. Flatten and convert to 'rgb(r,g,b)' strings
+        img_arr = np.array(pil_img)
+        # Flip vertically because mesh Z goes 0->Height (Bottom->Top), Image goes Top->Bottom
+        img_arr = np.flipud(img_arr)
+        
+        surface_color = np.empty((resolution_z, resolution_x), dtype=object)
+        for r in range(resolution_z):
+            for c in range(resolution_x):
+                # Check for alpha channel
+                if img_arr.shape[2] == 4:
+                    px = img_arr[r, c][:3]
+                else:
+                    px = img_arr[r, c]
+                surface_color[r, c] = f'rgb({px[0]},{px[1]},{px[2]})'
+                
+        # 3. Create Surface with explicit color mapping
+        surf = go.Surface(x=X, y=Y, z=Z, surfacecolor=surface_color, showscale=False)
+    else:
+        # Fallback solid color (using colorscale hack for uniform color)
+        # Create a dummy colorscale that is just the single color
+        c_hex = spec["Color"]
+        surf = go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)
+
+    fig3d = go.Figure(data=[surf])
     
-    fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale='Viridis', showscale=False)])
-    
-    # 3D Person (Stick Figure at Y=Radius)
-    person_y = curve_radius if is_curved else 2000
-    
-    # Body
-    fig3d.add_trace(go.Scatter3d(
-        x=[0, 0], y=[person_y, person_y], z=[0, 1750],
-        mode='lines', line=dict(color='red', width=5), name='Person'
-    ))
+    # 3D Stick Figure at (0,0,0) - The Focal Point
     # Head
-    fig3d.add_trace(go.Scatter3d(
-        x=[0], y=[person_y], z=[1750],
-        mode='markers', marker=dict(size=5, color='red'), showlegend=False
-    ))
+    fig3d.add_trace(go.Scatter3d(x=[0], y=[0], z=[1750], mode='markers', marker=dict(size=5, color='red'), name='Viewer Head'))
+    # Body
+    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0, 1750], mode='lines', line=dict(color='red', width=5), name='Viewer Body'))
     
     fig3d.update_layout(
         scene = dict(
             xaxis_title='Width (mm)',
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
-            aspectmode='data', # Critical for proportional scaling
-            camera=dict(eye=dict(x=0, y=2.5, z=0.5)) # Camera from +Y (Inside Curve)
+            aspectmode='data', # Strict Proportions
+            # Camera looking from behind the viewer (0, 2.5, 0.5) towards the screen (at -Y)
+            camera=dict(eye=dict(x=0, y=2.5, z=0.5), center=dict(x=0, y=0, z=0))
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
