@@ -110,23 +110,10 @@ with st.sidebar:
 
     st.subheader("5. Visual Context")
     content_file = st.file_uploader("Upload Screen Content", type=["png", "jpg", "jpeg"])
-    
-    # --- IMAGE PRE-PROCESSING ---
     content_img_data = None
     if content_file:
-        try:
-            image = Image.open(content_file)
-            content_img_data = np.array(image)
-            st.image(image, caption="Uploaded Preview", use_container_width=True)
-        except Exception as e:
-            st.error(f"Error loading image: {e}")
-            
-    with st.expander("Debug Image Data"):
-        if content_img_data is not None:
-            st.write(f"Raw Shape: {content_img_data.shape}")
-            st.write(f"Raw Type: {content_img_data.dtype}")
-        else:
-            st.write("Image Loaded: No")
+        try: content_img_data = np.array(Image.open(content_file))
+        except: pass
 
     # --- CALCULATIONS ---
     total_w_mm = panels_w * spec["Width(mm)"]
@@ -428,23 +415,11 @@ with tab2d:
 
 with tab3d:
     # 3D MODEL LOGIC
-    # DYNAMIC PIXEL DENSITY: Max 40,000 points to prevent lag
-    # Keep aspect ratio correct
+    # DYNAMIC PIXEL DENSITY
     MAX_POINTS = 40000
-    
-    # Calculate target grid size
-    # resolution_x * resolution_z <= 40000
-    # Aspect Ratio = TotalW / TotalH
-    # res_x / res_z = AR
-    # res_x = AR * res_z
-    # (AR * res_z) * res_z = 40000
-    # res_z^2 = 40000 / AR
-    
     aspect = total_w_mm / max(1, total_h_mm)
     resolution_z = int(math.sqrt(MAX_POINTS / aspect))
     resolution_x = int(resolution_z * aspect)
-    
-    # Clamp minimums to ensure a mesh exists
     resolution_z = max(10, resolution_z)
     resolution_x = max(10, resolution_x)
     
@@ -453,15 +428,27 @@ with tab3d:
         x = curve_radius * np.cos(theta)
         y = (curve_radius * np.sin(theta)) + curve_radius
         y = y - (phys_d / 2) 
+        
+        # Calculate Rear Surface (Solid Blue)
+        x_rear = (curve_radius + 50) * np.cos(theta)
+        y_rear = ((curve_radius + 50) * np.sin(theta)) + curve_radius - (phys_d / 2)
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, resolution_x)
         y = np.zeros(resolution_x)
+        x_rear = x
+        y_rear = y + 50 # 50mm thick
 
     z = np.linspace(0, total_h_mm, resolution_z)
     X, Z = np.meshgrid(x, z)
     Y = np.tile(y, (resolution_z, 1))
+    
+    # Rear Mesh
+    Xr, Zr = np.meshgrid(x_rear, z)
+    Yr = np.tile(y_rear, (resolution_z, 1))
 
-    # --- TEXTURE MAPPING FIX ---
+    fig3d = go.Figure()
+
+    # 1. Front Face (Content or Color)
     if content_img_data is not None:
         try:
             pil_img = Image.fromarray(content_img_data).convert("RGB")
@@ -469,46 +456,36 @@ with tab3d:
             
             img_arr = np.array(pil_img, dtype=np.uint8)
             img_arr = np.flipud(img_arr)
-            
-            # MIRROR horizontally for "Inner Face" viewing
-            img_arr = np.fliplr(img_arr)
-            
-            # Use Python list of strings for color
-            surface_color = [
-                [f'rgb({img_arr[r, c, 0]},{img_arr[r, c, 1]},{img_arr[r, c, 2]})' 
-                 for c in range(resolution_x)] 
-                for r in range(resolution_z)
-            ]
+            img_arr = np.fliplr(img_arr) # Fix for Inner Face mirroring
             
             # flatten for Scatter3d
             x_flat = X.flatten()
             y_flat = Y.flatten()
             z_flat = Z.flatten()
             
-            color_flat = []
-            for r in range(resolution_z):
-                for c in range(resolution_x):
-                    color_flat.append(surface_color[r][c])
+            color_flat = [f'rgb({r},{g},{b})' for r,g,b in img_arr.reshape(-1, 3)]
             
             # Using Scatter3d (Pixels) instead of Surface (Mesh) guarantees no "Red Block" shader error
-            fig3d = go.Figure(data=[go.Scatter3d(
+            fig3d.add_trace(go.Scatter3d(
                 x=x_flat, y=y_flat, z=z_flat,
                 mode='markers',
                 marker=dict(size=4, color=color_flat, symbol='square'),
                 name='LED Pixels'
-            )])
-            
-        except Exception as e:
-            st.error(f"Texture Error: {e}")
+            ))
+        except:
             c_hex = spec["Color"]
-            fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)])
+            fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
     else:
         c_hex = spec["Color"]
-        fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False)])
-    
-    # 3D Stick Figure at focal point Y=Radius
+        fig3d.add_trace(go.Surface(x=X, y=Y, z=Z, colorscale=[[0, c_hex], [1, c_hex]], showscale=False, name='Front'))
+
+    # 2. Rear Face (Solid Blue)
+    # Using Surface for the back is fine as it's solid color
+    fig3d.add_trace(go.Surface(x=Xr, y=Yr, z=Zr, colorscale=[[0, '#4a90e2'], [1, '#4a90e2']], showscale=False, opacity=1.0, name='Back'))
+
+    # 3. Stick Figure
     if is_curved:
-        person_y_pos = curve_radius 
+        person_y_pos = curve_radius - (phys_d / 2)
     else:
         person_y_pos = 2000
 
