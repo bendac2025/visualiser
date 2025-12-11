@@ -261,7 +261,7 @@ with st.sidebar:
             if j == 0: c.set_text_props(weight='bold')
             c.set_edgecolor('#dddddd')
 
-        ax_f = fig.add_axes([0.1, 0.25, 0.8, 0.22])
+        ax_f = fig.add_axes([0.1, 0.265, 0.8, 0.22])
         ax_f.set_title("FRONT VIEW")
         ax_f.set_aspect('equal')
         ax_f.axis('off')
