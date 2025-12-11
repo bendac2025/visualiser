@@ -75,7 +75,7 @@ with st.sidebar:
     available_pitches = sorted(prod_rows["Pitch(mm)"].unique())
     idx_pt = available_pitches.index(1.9) if 1.9 in available_pitches else 0
     selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches, index=idx_pt)
-    spec = prod_rows[prod_rows["Pitch(mm)"] == selected_pitch].iloc[0]
+    spec = prod_rows[prod_rows["Pitch(mm)"].unique() == selected_pitch].iloc[0]
     
     st.divider()
     c1, c2 = st.columns(2)
@@ -104,9 +104,8 @@ with st.sidebar:
     fps_opts = [60, 120, 240] if "AccuVision" in selected_prod else [60]
     target_fps = st.selectbox("Frame Rate (Hz)", fps_opts)
     
-    # --- ELECTRICAL CALC ---
     st.subheader("4. Electrical")
-    voltage = st.selectbox("Voltage", [110, 208, 230, 240], index=2) # Default 230V
+    voltage = st.selectbox("Voltage", [110, 208, 230, 240], index=2) 
     phase_type = st.radio("Phase", ["Single Phase", "3-Phase"], index=0)
 
     st.subheader("5. Visual Context")
@@ -126,17 +125,13 @@ with st.sidebar:
     total_weight_kg = panels_w * panels_h * spec["Weight(kg)"]
     btu_hr = total_power_w * 3.412142
     
-    # Electrical Math
-    # Simple engineering formula (PF=1 for max draw estimation)
     if phase_type == "Single Phase":
         total_amps = total_power_w / voltage
         elec_str = f"{total_amps:.1f}A @ {voltage}V (1-Phase)"
     else:
-        # 3-Phase formula: Watts / (Volts * sqrt(3))
         total_amps = total_power_w / (voltage * 1.732)
         elec_str = f"{total_amps:.1f}A/Line @ {voltage}V (3-Phase)"
 
-    # Processor Math
     fps_scale = 60 / target_fps
     total_ports_needed = math.ceil(total_pixels / (655360 * fps_scale))
     proc_data = NOVASTAR_DB[proc_model]
@@ -153,11 +148,9 @@ with st.sidebar:
         card_cap = proc_data["card_capacity_60"] * fps_scale
         req_cards = math.ceil(total_pixels / card_cap)
         chassis_cap = proc_data["capacity_60"] * fps_scale
-        
         req_chassis_slots = math.ceil(req_cards / proc_data["slots"])
         req_chassis_bw = math.ceil(total_pixels / chassis_cap)
         total_chassis = max(req_chassis_slots, req_chassis_bw)
-        
         load_pct = (total_pixels / (total_chassis * chassis_cap)) * 100 if total_chassis > 0 else 0
         proc_str = f"{total_chassis}x {proc_model.split('(')[0]} ({req_cards}x 40G Cards)"
         reason_str = "Bandwidth" if req_chassis_bw > req_chassis_slots else "Slots"
@@ -167,7 +160,6 @@ with st.sidebar:
 
     video_inputs = math.ceil(total_pixels / (8294400 * fps_scale))
     input_str = f"{video_inputs}x 4K Inputs"
-    
     is_accuvision = "AccuVision" in selected_prod
     ig_str = f"{math.ceil(video_inputs / 4)}x Image Generators" if is_accuvision else ""
 
@@ -179,42 +171,49 @@ with st.sidebar:
         phys_w, phys_d = total_w_mm, 0
 
     # --- CAD DIMENSION HELPER ---
-    def draw_dim_line(ax, start, end, text, offset=0, color='black'):
-        """Draws a CAD style dimension line with arrows and text"""
-        # Midpoint
-        mid_x = (start[0] + end[0]) / 2
-        mid_y = (start[1] + end[1]) / 2
+    def draw_dim_line(ax, start, end, text, offset_dist=1000, color='black'):
+        """
+        Draws a dimension line offset from the object.
+        offset_dist: How far away (in mm) the line is pushed from the start/end points.
+        """
+        x1, y1 = start
+        x2, y2 = end
         
-        # Determine angle
-        dx = end[0] - start[0]
-        dy = end[1] - start[1]
-        
-        # Offset vector (perpendicular)
-        # Normalize
-        length = math.sqrt(dx*dx + dy*dy)
+        # Calculate normal vector
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.sqrt(dx**2 + dy**2)
         if length == 0: return
-        perp_x = -dy / length * offset
-        perp_y = dx / length * offset
         
-        # New points
-        p1 = (start[0] + perp_x, start[1] + perp_y)
-        p2 = (end[0] + perp_x, end[1] + perp_y)
+        # Unit vector perpendicular (-dy, dx)
+        nx = -dy / length
+        ny = dx / length
         
-        # Draw Extension lines
-        ax.plot([start[0], p1[0]], [start[1], p1[1]], color=color, linewidth=0.5, linestyle=':')
-        ax.plot([end[0], p2[0]], [end[1], p2[1]], color=color, linewidth=0.5, linestyle=':')
+        # Offset points
+        ox1 = x1 + nx * offset_dist
+        oy1 = y1 + ny * offset_dist
+        ox2 = x2 + nx * offset_dist
+        oy2 = y2 + ny * offset_dist
         
-        # Draw Arrow Line
-        ax.annotate('', xy=p1, xytext=p2, arrowprops=dict(arrowstyle='<->', color=color, lw=0.8))
+        # Extension lines (dashed)
+        ax.plot([x1, ox1], [y1, oy1], color=color, linestyle=':', linewidth=0.5)
+        ax.plot([x2, ox2], [y2, oy2], color=color, linestyle=':', linewidth=0.5)
         
-        # Draw Text
-        t_x = (p1[0] + p2[0]) / 2
-        t_y = (p1[1] + p2[1]) / 2
-        # Slight bump for text
-        text_offset_y = 50 if abs(dx) > abs(dy) else 0
-        text_offset_x = 50 if abs(dy) >= abs(dx) else 0
+        # Dimension line (solid with arrows)
+        ax.annotate("", xy=(ox1, oy1), xytext=(ox2, oy2), arrowprops=dict(arrowstyle="<->", color=color))
         
-        ax.text(t_x + text_offset_x, t_y + text_offset_y, text, ha='center', va='center', fontsize=8, color=color, backgroundcolor='white')
+        # Text positioning (slightly further out)
+        tx = (ox1 + ox2) / 2 + nx * 200 
+        ty = (oy1 + oy2) / 2 + ny * 200
+        
+        # Calculate angle for text rotation
+        angle = math.degrees(math.atan2(dy, dx))
+        # Ensure text is readable (not upside down)
+        if 90 < angle <= 270 or -270 < angle <= -90:
+            angle += 180
+            
+        ax.text(tx, ty, text, ha='center', va='center', rotation=angle, fontsize=7, 
+                bbox=dict(facecolor='white', edgecolor='none', pad=1))
 
     def create_pdf():
         panel_thick = 100
@@ -227,7 +226,6 @@ with st.sidebar:
         
         fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
         
-        # Table
         ax_t = fig.add_axes([0.1, 0.58, 0.8, 0.20])
         ax_t.axis('off')
         
@@ -260,7 +258,6 @@ with st.sidebar:
         tbl.set_fontsize(9)
         tbl.scale(1, 1.6)
         
-        # Resize Rows
         for r, row_d in enumerate(rows):
             if "\n" in row_d[1]:
                 tbl[r, 0].set_height(tbl[r, 0].get_height() * 1.8)
@@ -281,16 +278,14 @@ with st.sidebar:
         if content_img_data is not None:
             ax_f.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm], zorder=0)
         
-        # Grid
         if panels_w <= 100:
             for i in range(int(panels_w)+1): ax_f.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'k-', lw=0.1)
             for i in range(int(panels_h)+1): ax_f.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'k-', lw=0.1)
             
-        # DIMS - Width & Height
-        draw_dim_line(ax_f, (0, -200), (total_w_mm, -200), f"{total_w_mm:,.0f}mm", offset=0)
-        draw_dim_line(ax_f, (-200, 0), (-200, total_h_mm), f"{total_h_mm:,.0f}mm", offset=0)
+        # DIMS - Outset by 1000mm
+        draw_dim_line(ax_f, (0, 0), (total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-1000)
+        draw_dim_line(ax_f, (0, 0), (0, total_h_mm), f"{total_h_mm:,.0f}mm", offset_dist=-1000)
 
-        # Person
         px = total_w_mm + 500
         if os.path.exists("person.png"):
             im = mpimg.imread("person.png")
@@ -309,8 +304,8 @@ with st.sidebar:
         if not is_curved:
             sx = -total_w_mm/2
             ax_top.add_patch(patches.Rectangle((sx, 0), total_w_mm, 100, fc=spec["Color"], ec='black'))
-            # DIMS
-            draw_dim_line(ax_top, (sx, -200), (sx+total_w_mm, -200), f"{total_w_mm:,.0f}mm")
+            # DIMS - Outset
+            draw_dim_line(ax_top, (sx, 0), (sx+total_w_mm, 0), f"{total_w_mm:,.0f}mm", offset_dist=-1000)
             py = 1000
         else:
             cx, cy = 0, curve_radius
@@ -325,14 +320,12 @@ with st.sidebar:
                 ax_top.add_patch(patches.Polygon([p1,p2,p3,p4], fc=spec["Color"], ec='black'))
                 curr += step
             
-            # Curve Dims (Chord Width)
+            # Chord Width - Outset
             c_half = phys_w/2
-            draw_dim_line(ax_top, (-c_half, -200), (c_half, -200), f"Chord: {phys_w:,.0f}mm")
-            # Sagitta
-            # Line from chord center to arc top
-            sagitta_y = phys_d
-            ax_top.plot([0,0], [0, sagitta_y], 'k:', lw=0.5)
-            ax_top.text(50, sagitta_y/2, f"D: {phys_d:,.0f}mm", fontsize=6)
+            # Use sagitta y-pos to place dimension below the curve
+            bottom_y = cy + curve_radius*math.sin(math.radians(270)) # lowest point approx
+            
+            draw_dim_line(ax_top, (-c_half, bottom_y), (c_half, bottom_y), f"Chord: {phys_w:,.0f}mm", offset_dist=-1000)
             
             py = min(curve_radius, phys_d + 3000)
 
@@ -373,7 +366,6 @@ VIDEO INPUTS: {input_str}
 # --- TABS FOR 2D / 3D ---
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
-# Top Metrics
 m1, m2, m3, m4 = st.columns(4)
 dim_s = f"{total_w_mm:,.0f} x {total_h_mm:,.0f} mm"
 if use_imperial: dim_s += f"\n({total_w_mm/304.8:,.1f}' x {total_h_mm/304.8:,.1f}')"
@@ -406,7 +398,6 @@ with tab2d:
         ax1.add_patch(patches.Rectangle((0, 0), total_w_mm, total_h_mm, fc=fc, ec='white', lw=1))
         if content_img_data is not None: ax1.imshow(content_img_data, extent=[0, total_w_mm, 0, total_h_mm])
         
-        # Grid
         for i in range(int(panels_w)+1): ax1.plot([i*spec["Width(mm)"]]*2, [0, total_h_mm], 'w-', lw=0.2)
         for i in range(int(panels_h)+1): ax1.plot([0, total_w_mm], [i*spec["Height(mm)"]]*2, 'w-', lw=0.2)
         
@@ -456,40 +447,45 @@ with tab2d:
 
 with tab3d:
     # 3D MODEL LOGIC
-    # Generate points for the screen surface
-    theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), 50) if is_curved else np.zeros(50)
+    # Align Center at (0,0,0) with curve apex at Origin
     
     if is_curved:
-        # Cylinder coordinates (Swapped Y/Z for plotting orientation)
-        # X = Width, Z = Height, Y = Depth
-        # Center of curvature is at Y = curve_radius. Screen face is at (0,0) in flat mode.
-        # Let's map: x = r*cos(t), y = r*sin(t).
-        # We want screen center at (0,0).
+        # Curve Apex is at (0,0) in 2D plot logic (after shifting).
+        # Our 2D math was: Center at (0, R). Apex at (0, R - R) = (0,0).
+        # Angle range: 270 - A/2 to 270 + A/2.
+        
+        theta = np.linspace(math.radians(270 - curve_angle/2), math.radians(270 + curve_angle/2), 50)
+        
+        # In Plotly 3D: X=Width, Z=Height, Y=Depth.
+        # R * cos(theta) -> X
+        # R * sin(theta) -> Y (Depth).
+        # Apex is at 270 deg. sin(270) = -1. Y = -R.
+        # We want Apex at Y=0. So Y_new = Y_old + R.
+        
         x = curve_radius * np.cos(theta)
-        y = curve_radius * np.sin(theta)
-        # Shift so the chord center is near 0
-        y = y - curve_radius # Move arc to origin
+        y = (curve_radius * np.sin(theta)) + curve_radius
+        
     else:
         x = np.linspace(-total_w_mm/2, total_w_mm/2, 50)
-        y = np.zeros(50) # Flat
+        y = np.zeros(50) 
     
-    # Create Mesh
     z = np.linspace(0, total_h_mm, 10)
     X, Z = np.meshgrid(x, z)
-    # Y needs to be tiled
     Y = np.tile(y, (10, 1)).reshape(10, 50)
     
     fig3d = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale='Viridis', showscale=False)])
     
-    # Add a "Person" reference (Cylinder)
-    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[2000], z=[0, 1750], mode='lines', line=dict(color='red', width=10), name='Person'))
+    # 3D Person Reference (Cylinder)
+    # Place person 2m in front (Y = 2000)
+    fig3d.add_trace(go.Scatter3d(x=[0,0], y=[2000, 2000], z=[0, 1750], mode='lines', line=dict(color='red', width=5), name='Person'))
     
+    # Enforce strict Aspect Ratio to prevent elongation
     fig3d.update_layout(
         scene = dict(
             xaxis_title='Width (mm)',
             yaxis_title='Depth (mm)',
             zaxis_title='Height (mm)',
-            aspectmode='data'
+            aspectmode='data' # This forces 1 unit = 1 unit on all axes
         ),
         margin=dict(l=0, r=0, b=0, t=0),
         height=600
