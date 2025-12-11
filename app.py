@@ -58,10 +58,7 @@ if 'db' not in st.session_state:
 
 df = st.session_state.db
 
-# --- 2. CALCULATIONS & VARIABLES ---
-# We move this up so we can use variables in the Sidebar logic
-
-# --- 3. SIDEBAR CONTROLS ---
+# --- 2. SIDEBAR CONTROLS ---
 with st.sidebar:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=200)
@@ -143,23 +140,25 @@ with st.sidebar:
 
     # --- PDF GENERATION FUNCTION ---
     def create_pdf_figure():
-        # Create A4 Size Figure (approx 8.27 x 11.69 inches)
+        # Create A4 Size Figure
         pdf_fig = plt.figure(figsize=(8.27, 11.69))
         
-        # 1. HEADER (Logo & Title) - Top 15%
-        # Add Logo
+        # 1. HEADER LOGIC
+        # Logo Centered at Top
+        # Axes: [left, bottom, width, height]
+        # Page width is 1.0. Logo width 0.3. Center X = (1 - 0.3)/2 = 0.35
         if os.path.exists("logo.png"):
-            ax_logo = pdf_fig.add_axes([0.1, 0.88, 0.3, 0.1]) # [left, bottom, width, height]
+            ax_logo = pdf_fig.add_axes([0.35, 0.89, 0.3, 0.08]) 
             img_logo = mpimg.imread("logo.png")
             ax_logo.imshow(img_logo)
             ax_logo.axis('off')
         
-        # Add Title Text
-        pdf_fig.text(0.5, 0.93, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
-        pdf_fig.text(0.5, 0.91, f"{selected_prod}", ha='center', fontsize=12, color='#555')
-
-        # 2. DATA TABLE - Top Middle (below header)
-        ax_table = pdf_fig.add_axes([0.1, 0.73, 0.8, 0.15])
+        # Title Text - Positioned with clearance below logo
+        # Logo bottom is at 0.89. We place text at 0.85 to create the gap.
+        pdf_fig.text(0.5, 0.85, "TECHNICAL SPECIFICATION", ha='center', fontsize=16, weight='bold')
+        
+        # 2. DATA TABLE - Below Title
+        ax_table = pdf_fig.add_axes([0.1, 0.68, 0.8, 0.15])
         ax_table.axis('off')
         
         table_data = [
@@ -182,21 +181,19 @@ with st.sidebar:
         the_table = ax_table.table(cellText=table_data, loc='center', cellLoc='left', colWidths=[0.3, 0.7])
         the_table.auto_set_font_size(False)
         the_table.set_fontsize(10)
-        the_table.scale(1, 1.5) # Add padding to cells
+        the_table.scale(1, 1.5)
         
-        # Style the table (optional: bold first column)
         for (i, j), cell in the_table.get_celld().items():
             if j == 0:
                 cell.set_text_props(weight='bold')
             cell.set_edgecolor('#dddddd')
 
         # 3. FRONT VIEW - Middle
-        ax_front = pdf_fig.add_axes([0.1, 0.38, 0.8, 0.30]) # Position
+        ax_front = pdf_fig.add_axes([0.1, 0.36, 0.8, 0.30])
         ax_front.set_title("FRONT VIEW (Unfolded)")
         ax_front.set_aspect('equal')
         ax_front.axis('off')
         
-        # Draw Screen
         rect = patches.Rectangle((0, 0), total_w_mm, total_h_mm, linewidth=1, edgecolor='black', facecolor=spec["Color"])
         ax_front.add_patch(rect)
         
@@ -209,7 +206,7 @@ with st.sidebar:
                 y = r * spec["Height(mm)"]
                 ax_front.plot([0, total_w_mm], [y, y], color='black', linewidth=0.1, alpha=0.5)
 
-        # Person Image (reuse loaded img if avail)
+        # Person Image
         pdf_px = total_w_mm + 500
         if os.path.exists("person.png"):
             img = mpimg.imread("person.png")
@@ -270,11 +267,6 @@ with st.sidebar:
 
     # --- SIDEBAR DOWNLOAD BUTTON ---
     st.divider()
-    
-    # We generate the buffer only when the button needs it, but Streamlit buttons refresh the script.
-    # To keep it efficient, we put the logic inside the button callback or logic block.
-    # Standard Streamlit download button requires data pre-loaded.
-    
     pdf_buffer = create_pdf_figure()
     st.download_button(
         label="📄 Download Spec Sheet (PDF)",
@@ -324,11 +316,8 @@ with plot_col1:
         y = r * spec["Height(mm)"]
         ax1.plot([0, total_w_mm], [y, y], color='white', linewidth=0.5)
 
-    # **FLOOR LINE REMOVED HERE** (Was previously ax1.axhline...)
-
     # Draw Person (IMAGE)
     p_x = total_w_mm + 500 
-    
     if os.path.exists("person.png"):
         try:
             img = mpimg.imread("person.png")
@@ -336,14 +325,11 @@ with plot_col1:
             aspect_ratio = img_w_px / img_h_px
             target_h = person_h
             target_w = target_h * aspect_ratio
-            
-            # Ensure extent bottom is exactly 0
             ax1.imshow(img, extent=[p_x, p_x + target_w, 0, target_h], zorder=10)
         except Exception as e:
             st.error(f"Error loading person.png: {e}")
             ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#ccc"))
     else:
-        # Fallback
         ax1.add_patch(patches.Rectangle((p_x, 0), 600, 1750, color="#888"))
 
     ax1.autoscale_view()
@@ -360,13 +346,11 @@ with plot_col2:
     panel_thick = 100
 
     if not is_curved:
-        # Flat
         start_x = -(total_w_mm / 2)
         rect_top = patches.Rectangle((start_x, 0), total_w_mm, panel_thick, linewidth=1, edgecolor='black', facecolor=panel_color)
         ax2.add_patch(rect_top)
         person_y = 1000
     else:
-        # Curved
         center_x = 0
         center_y = curve_radius 
         
@@ -380,7 +364,6 @@ with plot_col2:
             y1 = center_y + curve_radius * math.sin(current_a)
             x2 = center_x + curve_radius * math.cos(current_a + math.radians(angle_step))
             y2 = center_y + curve_radius * math.sin(current_a + math.radians(angle_step))
-            
             r_out = curve_radius + panel_thick
             x3 = center_x + r_out * math.cos(current_a + math.radians(angle_step))
             y3 = center_y + r_out * math.sin(current_a + math.radians(angle_step))
@@ -394,7 +377,6 @@ with plot_col2:
 
         person_y = min(curve_radius, phys_d + 3000) 
 
-    # Top Person Image
     if os.path.exists("top_person.png"):
         try:
             img_top = mpimg.imread("top_person.png")
