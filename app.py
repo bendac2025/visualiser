@@ -358,6 +358,35 @@ VIDEO INPUTS: {input_str}
         if is_accuvision: t += f"IGs: {ig_str}"
         st.code(t)
 
+st.divider()
+    
+    # --- LEAD GEN: EMAIL BUTTON ---
+    import urllib.parse
+    
+    email_subject = f"Quote Request: {selected_prod} ({panels_w}x{panels_h})"
+    email_body = f"""Hi Bendac Team,
+
+I would like a quote for the following configuration created in the Visualiser:
+
+Product: {selected_prod} {selected_pitch}mm
+Configuration: {panels_w} Wide x {panels_h} High
+Dimensions: {total_w_mm}mm x {total_h_mm}mm
+Curve: {'Yes' if is_curved else 'No'}
+Processing: {proc_model}
+
+Please contact me to discuss.
+"""
+    # URL Encode the string for mailto
+    safe_subject = urllib.parse.quote(email_subject)
+    safe_body = urllib.parse.quote(email_body)
+    mailto_link = f"mailto:info@bendac.tech?subject={safe_subject}&body={safe_body}"
+    
+    st.link_button("📧 Request Quote / Enquire", mailto_link, type="primary")
+
+    # --- DISCLAIMER ---
+    st.caption("---")
+    st.caption("📝 **Disclaimer:** All dimensions, weights, and power figures are estimates for visualization purposes only. Final engineering drawings should be requested from the Bendac technical team before construction.")
+
 st.subheader(f"{selected_prod} ({selected_pitch}mm)")
 
 m1, m2, m3, m4 = st.columns(4)
