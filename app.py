@@ -8,7 +8,7 @@ import os
 import numpy as np
 
 # --- 1. CONFIG & DATABASE ---
-st.set_page_config(page_title="Bendac Visualizer", layout="wide")
+st.set_page_config(page_title="Bendac Visualiser", layout="wide")
 
 def load_data():
     """
@@ -65,7 +65,7 @@ with st.sidebar:
     else:
         st.title("BENDAC")
     
-    st.caption("VISUALIZER TOOL")
+    st.caption("VISUALISER TOOL")
     st.header("Configuration")
     
     # Product Selection
