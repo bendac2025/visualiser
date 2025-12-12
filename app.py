@@ -80,7 +80,7 @@ with st.sidebar:
     available_pitches = sorted(prod_rows["Pitch(mm)"].unique())
     idx_pt = available_pitches.index(1.9) if 1.9 in available_pitches else 0
     selected_pitch = st.selectbox("Pixel Pitch (mm)", available_pitches, index=idx_pt)
-    spec = prod_rows[prod_rows["Pitch(mm)"].unique() == selected_pitch].iloc[0]
+    spec = prod_rows[prod_rows["Pitch(mm)"] == selected_pitch].iloc[0]
     
     st.divider()
     c1, c2 = st.columns(2)
